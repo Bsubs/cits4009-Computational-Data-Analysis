@@ -1,0 +1,37 @@
+---
+title: "project1"
+author: "Joo Kai Tay (22489437)"
+date: "2023-08-07"
+output: html_document
+---
+
+### Introduction
+The data set analyzed can be obtained from the Kaggle platform.
+https://www.kaggle.com/datasets/nelgiriyewithana/global-youtube-statistics-2023
+
+This dataset contains information about 995 of the most subscribed YouTube channels in the world. The dataset includes variables such as suscriber count, video views, upload frequency, country of origin and earnings. 
+
+### Data loading, overview and set up
+
+Load libraries
+```{r message=FALSE, warning=FALSE}
+library(ggplot2)
+library(gridExtra)
+library(dplyr)
+library(ggthemes)
+library(numform)
+library(treemapify)
+library(timeDate)
+library(lubridate)
+library(dplyr)
+library(reshape2)
+library(ca)
+```
+
+Setting up a plotting theme so that all charts look coherent
+```{r}
+cits4009_theme <- theme_few() + # Theme based on S. Few's "Practical Rules for Using Color in Charts"
+                  theme(plot.title = element_text(color = "darkred")) +
+                  theme(strip.text.x = element_text(size = 14, colour = "#202020")) +
+                  theme(plot.margin=margin(10,30,10,30))
+```

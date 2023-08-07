@@ -1,0 +1,119 @@
+---
+title: "CITS4009 Computational Data Analysis"
+subtitle: "An example Rmd file"
+
+graphics: yes
+author: <i>Du Huynh</i> (Unit Coordinator)
+date: "Semester 2, 2022"
+
+output:
+  html_document:
+    includes:
+      before_body: style.html
+    number_sections: true
+
+---
+
+# What are R notebook files? 
+
+R notebook files have the extension `Rmd`, which you can open in RStudio just like a normal `R` file. They contain R code and markdown statements together so you can specify the R statemenets that you want to run among textual explanation. You can generate a *pdf* file, a *nb.html*, or a *html* file from an R notebook, depending what you specify as the `output` at the beginning of the file. In this document, we show an example for generating an output html file.
+
+An R notebook consists of two main parts: a *header* and a *body*. These parts are separate by a line with three dashes.
+
+# The header part of an R notebook
+
+Various text fields are recognized in the header part of an R notebook, e.g., `title`, `subtitle`, `graphics`, `author`, `date`, and `output`. You should give a proper title, authors' names, date, and most importantly what output file you want to generate. Any of these text fields (except for `output`) can be omitted if you don't want them.
+
+For the output part, you need to specify `output:` on a line by itself. The output format `html_document:` should be on a line immediately after that. You can optionally specify an html file to be included. This extra file, named *style.html* in this example, contains definitions of the font sizes, font colours, etc., that should be used for different section levels in the output html file.
+
+You can specify whether the sections, subsections, etc, should be numbered. If you want them to be numbered, then put the line
+<pre>
+    number_sections: true
+</pre>
+under `html_documents:`. The default is no numbering for the sections and subsections.
+
+# The body part of an R notebook
+
+You should organize what you want to present into sections, subsections, etc, with R code put at appropriate places. To quickly learn `rmarkdown`, see the following links:
+
+* **R Markdown cheat sheet:** https://www.rstudio.com/wp-content/uploads/2015/02/rmarkdown-cheatsheet.pdf
+
+* **R Markdown from RStudio:** https://rmarkdown.rstudio.com/
+
+R code can be easily included in an R notebook. You can use <span style="color: #0000ff"><tt>**\`\`\`\{r\}**</tt></span> and <span style="color: #0000ff"><tt>**\`\`\`**</tt></span> to bracket your R statements. For example: 
+
+````{verbatim}
+```{r}
+a <- 5
+b <- 10
+```
+````
+
+You can also specify various options such as `out.width="70%"` to scale a large figure down to 70% of the width of the page, `collapse=TRUE` to show the output and the R code in a more compact format, etc. 
+
+When constructing your R notebook, think about how to make it easy for the reader to view and understand what is explained and displayed. For instance, we might want to show the `dexp`, `pexp`, and `qexp` functions. We could do it like this:
+
+```{r}
+library(ggplot2)
+x <- seq(0, 5, length=500)
+dx <- dexp(x)
+px <- pexp(x)
+qx <- qexp(px)  # qexp() is the inverse of pexp()
+ggplot() + geom_line(aes(x=x, y=dx))
+ggplot() + geom_line(aes(x=x, y=px))
+ggplot() + geom_line(aes(x=px, y=qx))
+```
+
+The R code above is correct and will run without problems, but in terms of presentation, it is very poor:
+
+* All the figures are too large. The reader will need to scroll back and forth if he/she wants to compare these figures. These are very simple diagrams with no complex details. They take up a lot of space in your document.
+* None of the figures has meaningful labels on the $x$- and $y$-axes. They don't have meaningful titles either.
+
+It shows that the person who wrote the notebook aimed at getting the job done with the bare minimum amount of effort.
+
+A slightly improved version is given below:
+
+```{r, collapse=TRUE, out.width="100%", fig.height=2}
+library(ggplot2)
+library(gridExtra)
+x <- seq(0, 5, length=500)
+dx <- dexp(x)
+px <- pexp(x)
+qx <- qexp(px)  # qexp() is the inverse of pexp()
+fig1 <- ggplot() + geom_line(aes(x=x, y=dx))
+fig2 <- ggplot() + geom_line(aes(x=x, y=px))
+fig3 <- ggplot() + geom_line(aes(x=px, y=qx))
+grid.arrange(fig1, fig2, fig3, ncol=3)
+```
+
+We still need to put in proper labels to the axes of each subplot. It would be more meaningful also to put in a heading above each subplot. However, this version is definitely a lot better than the previous one. For the `fig.height=2` setting, the default unit is *inches*. So our figure above should be 2 inches tall. Of course, depending on what we want to show, this number will need to be adjusted.
+
+# How to run your R notebook?
+
+You can experiment with the R code in your R notebook file by clicking the small green triangle <font color="green">&#x25BA;</font> on the top-right corner of each block of R code. Once you have all your R code working correctly, to generate the final *html* file, click the **Knit** button. By default, the first option **Knit to HTML** will be chosen. Your default web browser should be automatically launched with the output html file shown there.
+
+A copy of the output file **example.html** should also be saved in the current working directory. If your project 1 is named as **project1.Rmd** then the output file will be **project1.html**. This is the file you should upload to **csmarks** as your submission for the project.
+
+# Any tips to improve the presentation of your R notebook?
+
+Most of the tips below are for plots/diagrams:
+
+* Think about the overall structure of your R notebook. What are the sections? For large sections, how many subsections should be there? What are the names of the sections and subsections?
+
+* Think about appropriate plots to explain your data. Do not use unnecessary plots that cause confusion. If one plot is sufficient, then do not show two or more plots, e.g.,  if you have shown a column bar plot then there is no need to show the same thing using a Polar coordinate plot. 
+
+* Think about putting plots for comparison side-by-side. Adjust the size of your plots to fit the page width of the final document.
+
+* If you have a very tall diagram, then focus on the important aspect that you want to illustrate and remove the unimportant ones. For instance, if a specific categorical variable has 100 categories, then identify a small subset of these categories (e.g., those having the 5 highest and lowest frequencies) and illustrate only this subset. Do not clutter your plots with unnecessary details.
+
+* Think about overlaying different curves/lines in the same plot and use a *legend* appropriately.
+
+* The horizontal and vertical axes sometimes need to be scaled equally. For instance, if you want to illustrate a circle, your figure should not show an ellipse because of the unequal scales on the axes.
+
+* Very often units need to be specified on the axes. For instance, if the horizontal axis indicates *time*, do the tick marks denote *seconds*, *minutes*, *days*, or something else?
+
+* Annotations are sometimes required for some diagrams.
+
+* Finally, don't forget to do a grammar and spell check. Can you spot a spelling mistake in the first paragraph of Section 1?
+
+<br><br>

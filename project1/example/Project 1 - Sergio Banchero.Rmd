@@ -1,0 +1,614 @@
+---
+title: "CITS4009 - Project 1"
+author: Sergio Banchero (22565979)
+output: html_notebook
+---
+
+### Introduction
+The data set analyzed can be obtained from the Kaggle platform. It's part of the "Data Science for Good: Kiva Crowdfunding" challenge.
+https://www.kaggle.com/kiva/data-science-for-good-kiva-crowdfunding
+
+Kiva.org is a crowdfunding organization that provides loans to people in economic disadvantage all over the world. The data set includes over 670K loans made by Kiva in a span of almost 3 years and a half. Data provided includes geographical information, usage of the loans and some information about the borrowers.
+
+### Data loading, overview and set up
+
+Load libraries
+```{r message=FALSE, warning=FALSE}
+library(ggplot2)
+library(gridExtra)
+library(dplyr)
+library(ggthemes)
+library(numform)
+library(treemapify)
+library(timeDate)
+library(lubridate)
+library(dplyr)
+library(reshape2)
+library(ca)
+```
+
+Setting up a plotting theme so that all charts look coherent
+```{r}
+cits4009_theme <- theme_few() + # Theme based on S. Few's "Practical Rules for Using Color in Charts"
+                  theme(plot.title = element_text(color = "darkred")) +
+                  theme(strip.text.x = element_text(size = 14, colour = "#202020")) +
+                  theme(plot.margin=margin(10,30,10,30))
+```
+
+Load the main data
+```{r}
+data.path <- './data/kiva_loans.csv'
+kiva <- read.csv(data.path)
+```
+
+Using str to analyze the data
+```{r echo=T, results='hide'}
+str(kiva)
+```
+There are 671205 obs with 20 variables, comprised by 14 factors, 2 integer and 4 numeric variables.
+But in fact columns, we can see that from the factors, some have too many levels: "use", "posted_time", "disbursed_time", "funded_time", "tags", "borrower_genders" and "date". This is because R treats any column for which it finds "string" data as factors by default. We will deal with these later on.
+From the numeric variables, partner_id and id are actually ids so they could be treated as factors or ignored for now.
+
+
+Using summary to analyze the data
+```{r echo=T, results='hide'}
+summary(kiva)
+```
+Most numeric variables, like loan amount and lender count are highly right-skewed.
+
+Viewing the first ten observations
+```{r echo=T, results='hide'}
+head(kiva)
+```
+From the above two summaries, we can see that borrower_genders is a list with the genders of all the borrowers individually listed. "Use"" is a free text field.
+
+##### Initial transformations
+Based on the above observations, we'll convert some columns to a more appropriate format and add new ones that might be useful in further analysis.
+```{r echo=T, results='show'}
+time_cols <- c('posted_time', 'disbursed_time', 'funded_time')
+kiva[,time_cols][kiva[,time_cols]==""] <- NA # Replace the "" string for NA in the date-time columns
+
+kiva <- within(kiva, {
+          partner_id <- as.factor(partner_id)
+          use <- as.character(use)
+          
+          # Use the "borrower_genders" to extract the number of borrowers
+          number_borrowers <- sapply(strsplit(as.character(kiva$borrower_genders), ", "), length)
+          borrowers_females <- sapply(strsplit(as.character(kiva$borrower_genders), ", "), function(x){sum(x=='female')})
+          borrowers_males <- sapply(strsplit(as.character(kiva$borrower_genders), ", "), function(x){sum(x=='male')})
+          
+          # Parsing and converting dates
+          date <- as.Date(date, format='%Y-%m-%d')
+          posted_time <- as.POSIXlt(posted_time)
+          disbursed_time <- as.POSIXlt(disbursed_time)
+          funded_time <- as.POSIXlt(funded_time)
+          funded_lag <- as.numeric(difftime(funded_time, posted_time, units = "days"))
+          funded_lag[funded_lag<0] <- NA # negative times make no sense, set to NA
+          
+          # Convert tags to characters
+          tags <- as.character(tags)
+          user_favorite <- grepl("user_favorite", tags) # take the "user_favorite" tag as a boolean variable
+          
+          fully_funded <- funded_amount>=loan_amount # boolean variable indicating if the loan was fully funded
+})
+```
+
+Analyze the number of NA each variables
+```{r}
+apply(is.na(kiva), 2, sum)
+```
+Most of the columns don't have any NA. The ones that do might be due to lack of funding.
+We can see this by splitting the same information between the fully funded and not funded loans:
+```{r}
+x <- rbind(apply(is.na(kiva[kiva$fully_funded,]), 2, sum),
+           apply(is.na(kiva[!kiva$fully_funded,]), 2, sum))
+rownames(x) <- c('fully_funded','not_fully_funded')
+t(x[,colSums(x)>0])
+```
+We see that that's mostly the case for all variables except partner_id.
+
+
+
+### Analyzing loan amount, funded amount and funded time
+Since these are right-skewed variables, we'll use two histograms to analyze the distribution: one with a log10 scale and one with a truncated linear scale
+```{r, fig.width = 12}
+p1 <- ggplot(data = kiva, mapping = aes(x = loan_amount))+
+  geom_histogram(aes(y=..density..), bins=50, fill = "grey")+
+  geom_density(color='darkred') +
+  scale_x_continuous(trans='log10')+
+  ggtitle("Loan Amount (Log Scale)") + 
+  cits4009_theme
+
+p2 <- ggplot(data = kiva, 
+      mapping = aes(x = loan_amount))+
+  geom_histogram(aes(y=..density..), bins = 200, fill = "grey")+
+  geom_density(color='darkred') +
+  scale_x_continuous(limits=c(0, 0.5e+04))+
+  annotate("text", x = 1000, y = 0.0015, label = "Spikes at discrete values\n $1K, $1.5K, etc") +
+  ggtitle("Loan Amount (Up to $5K)") + 
+  cits4009_theme
+
+grid.arrange(p1, p2, ncol=1)
+```
+Most loans have "round" values like 100, 500, 1K, etc.
+
+```{r, fig.width = 12}
+p1 <- ggplot(data = kiva, mapping = aes(x = funded_amount))+
+  geom_histogram(aes(y=..density..), bins=50, fill = "grey")+
+  geom_density(color='darkred') +
+  scale_x_continuous(trans='log10')+
+  ggtitle("Funded Amount (Log Scale)") + 
+  cits4009_theme
+
+p2 <- ggplot(data = kiva, 
+      mapping = aes(x = funded_amount))+
+  geom_histogram(aes(y=..density..), bins = 200, fill = "grey")+
+  geom_density(color='darkred') +
+  scale_x_continuous(limits=c(0, 0.5e+04))+
+  ggtitle("Funded Amount (Up to $5K)") + 
+  cits4009_theme
+
+grid.arrange(p1, p2, ncol=1)
+```
+As expected, the "funded_amount" has a distribution almost identical to "loan_amount".
+
+Because most loans have "round" values like 100, 500, 1K, etc., it might be useful to add a categorical variable to group them
+```{r}
+brks <-c(0, 100, 200, 300, 400, 500, 1000, 2000, 5000, Inf)
+kiva$loan_amount_range <- cut(kiva$loan_amount, breaks=brks, right=FALSE, include.lowest=T)
+levels(kiva$loan_amount_range) <- c("[0,100)", "[100,200)", "[200,300)", "[300,400)", "[400,500)", "[500,1K)", "[1K,2K)",
+"[2K,5K)", ">=5K")
+```
+
+
+We can also analyze the distribution of "funded lag" (how long it took for the loan to be funded). 
+Again we'll use a log scale and a truncated linear scale to plot the distribution.
+```{r, fig.width = 12}
+p1 <- ggplot(data = kiva, mapping = aes(x = funded_lag))+
+  geom_histogram(aes(y=..density..), bins=30, fill = "grey")+
+  geom_density(color='darkred') +
+  scale_x_continuous(trans='log10')+
+  ggtitle("Funded Lag (Log Scale)") + 
+  cits4009_theme
+
+p2 <- ggplot(data = kiva, 
+      mapping = aes(x = funded_lag))+
+  geom_histogram(aes(y=..density..), bins = 100, fill = "grey")+
+  geom_density(color='darkred') +
+  scale_x_continuous(limits=c(0, 100))+
+  annotate("text", x = 30, y = 0.03, label = "~30 days\n funded lag") +
+  ggtitle("Funded Lag (Up to 100 days)") + 
+  cits4009_theme
+
+grid.arrange(p1, p2, ncol=1)
+```
+We see that it seems to be a bi-modal distribution, with a peak around 1 week and another at around 1 month.
+
+Now we want to analyze if there's a relation between the loan amount and how long it takes to fund it.
+Since funded lag seems to be bi-modal, a boxplot might not show this detail, so we'll use violin plots.
+```{r, fig.width = 12}
+gd <- kiva %>% 
+        group_by(loan_amount_range) %>% 
+        summarise(funded_lag = mean(funded_lag, na.rm = T))
+
+ggplot(data = kiva, 
+      mapping = aes(y = funded_lag, x = loan_amount_range))+
+  geom_hline(yintercept = 31, show.legend = T, size=1, color='darkgray', linetype='dotted') +
+  geom_hline(yintercept = 6, show.legend = T, size=1, color='darkgray', linetype='dotted') + 
+  geom_violin(fill ='lightgray')+
+  geom_point(data = gd, stat = "identity", aes(shape='mean'), color='darkred', size=4)+
+  scale_y_continuous(limits = c(0,100))+
+  annotate("text", x = -0.5, y = 7, label = " ") +
+  annotate("text", x = 0, y = 7, label = "~1 Week\n funded lag") +
+  annotate("text", x = 4.5, y = 32,label = "~30 days\n funded lag") +
+  ggtitle("Funded Lag Distribution by Loan Amount Range") + 
+  cits4009_theme
+```
+The funded lag appears to increase with the loan amount.
+Another visible pattern is that a 30 days lag seems to be very common in large loans, whereas smaller loans get funded much quicker, specially after one week. This could be due to kiva's promotion policy on how projects get displayed and ranked in their site (For instance, after 30 days, a project that hasn't been funded is shown to more visitors).
+
+### Analyzing Number of Lenders
+```{r, fig.width = 12}
+p1 <- ggplot(data = kiva, 
+      mapping = aes(x = lender_count))+
+  geom_histogram(aes(y=..density..), bins = 100, fill = "grey")+
+  geom_density(color='darkred') +
+  scale_x_continuous(trans='log10')+
+  ggtitle("Number of lenders distribution (Log)") + 
+  cits4009_theme
+
+p2 <- ggplot(data = kiva, 
+      mapping = aes(x = lender_count))+
+  geom_histogram(aes(y=..density..), bins = 100, fill = "grey")+
+  geom_density(color='darkred') +
+  scale_x_continuous(limits=c(0, 100))+
+  ggtitle("Number of lenders (up to 100) distribution") + 
+  cits4009_theme
+
+grid.arrange(p1, p2, ncol=1)
+```
+The number of lenders seems to follow a one-inflated Poisson distribution
+
+Now we'll see the relation between number of lenders and loan amount.
+```{r, fig.width=12}
+ggplot(mapping = aes(x=lender_count, y=loan_amount), data=kiva[kiva$loan_amount>1 & kiva$lender_count>0,]) +
+  geom_point(alpha=0.01) +
+  scale_x_continuous(trans='log10') +
+  scale_y_continuous(trans='log10') +
+  geom_line(stat='summary',fun.y=quantile,fun.args = list(0.05),
+            linetype=2, mapping=aes(color="5% Percentile"), size=1)+
+  geom_line(stat='summary',fun.y=mean,
+            linetype=1, mapping=aes(color="Mean"), size=1)+
+  geom_line(stat='summary',fun.y=quantile,fun.args = list(0.95),
+            linetype=2, mapping=aes(color="95% Percentile"), size=1)+
+  ggtitle("Loan Amount Vs Number of Lenders") + 
+  cits4009_theme
+```
+There seems to be a linear relation between the number of lenders and the lower quantiles of the loan amount. This could be because of a minimum lending amount. We can create a histogram of loan amount per lender to see if this is could be the case.
+```{r, fig.width=12}
+mask <- kiva$loan_amount>1 & kiva$lender_count>0
+kiva$loan_amount_per_lender <- kiva$loan_amount / kiva$lender_count
+kiva$loan_amount_per_lender[!mask] <- NA
+ggplot(data = kiva, mapping = aes(x = loan_amount_per_lender)) +
+  geom_histogram(bins=100) +
+  scale_x_continuous(limits = c(0,500))+
+  ggtitle("Distribution of Loan Amount Per Lender (up to $500)") +
+  cits4009_theme
+
+ggplot(data = kiva, mapping = aes(x = loan_amount_per_lender)) +
+  geom_histogram(bins=100) +
+  scale_x_continuous(limits = c(0,50))+
+  ggtitle("Distribution of Loan Amount Per Lender (up to $50)") +
+  cits4009_theme
+```
+The large spike at \$25 and the very few cases below that amount are a strong indication that the minimum loan is set at \$25, and that a very large proportion of founders actually give that amount. In fact, by checking the kiva.org website, we see this is the case.
+
+### Geographical information
+Plot the loan amount by country to have an understanding of where the loans are being used.
+```{r, fig.width = 12, fig.height=16}
+kiva_by_country <- kiva %>% 
+        group_by(country) %>% 
+        summarise(loan_amount_mean = mean(loan_amount, na.rm = T),
+                  loan_amount_sum = sum(loan_amount, na.rm = T)
+                  )
+
+kiva_by_country <- transform(kiva_by_country,
+                    country=reorder(country, loan_amount_sum))
+ggplot(kiva_by_country, mapping=aes(x=country, y=loan_amount_sum))+
+  geom_bar(stat="identity", fill="gray") +
+  geom_text(mapping=aes(label=ff_mills( digits=-4)(loan_amount_sum)), position = position_stack(vjust = 0.5), size=4) +
+  ggtitle("Loan Amount By Country") + 
+  coord_flip() +
+  theme(axis.text.y=element_text(size=rel(0.8)))+
+  scale_y_continuous(label = ff_mills(prefix ='$', digits=-4))+
+  cits4009_theme
+```
+
+The site offers a secondary file with extra information about the regions, such as geographical coordinates and world region.
+Load and merge this data.
+```{r}
+kiva_regions <- read.csv('./data/kiva_mpi_region_locations.csv')
+
+kiva_by_region <- kiva %>% 
+        group_by(.dots=c('country', 'region')) %>% 
+        summarise(loan_amount_mean = mean(loan_amount, na.rm = T),
+                  loan_amount_sum = sum(loan_amount, na.rm = T)
+                  )
+
+kiva_by_region <- merge(kiva_by_region, kiva_regions, by=c('country','region'), all.x = TRUE)
+kiva_with_region <- merge(kiva, kiva_regions, by=c('country','region'), all.x = TRUE)
+```
+
+Plot a map
+```{r}
+cits4009_map_theme <- cits4009_theme + 
+                      theme(panel.grid = element_blank(),
+                            panel.border = element_blank(),
+                            legend.position="top", legend.direction = 'horizontal',
+                            axis.title.x=element_blank(),
+                            axis.text.x=element_blank(),
+                            axis.ticks.x=element_blank(),
+                            axis.title.y=element_blank(),
+                            axis.text.y=element_blank(),
+                            axis.ticks.y=element_blank())
+```
+
+```{r, fig.width = 12}
+ggplot(kiva_by_region)+
+  geom_polygon(data=map_data("world"), aes(x = long, y = lat, group = group), fill="#F0F0F0", colour = "lightgray")+
+  geom_point(mapping = aes(x=lon, y=lat, size = loan_amount_sum), alpha=0.7, color='darkred')+
+  coord_quickmap()+
+  facet_wrap(~world_region,  scales = "free")+
+  ggtitle("Location of Loans by World Region") + 
+  cits4009_map_theme
+```
+There are some clear issues with the data: We can see that there are miss located points, for instance there are points categorized as "Latin America and Caribbean" but are placed in Africa or Asia.
+We can clean up this by setting to NA the coordinates that fall far from the region bounding box.
+Also, many countries seem to have not been mapped correctly. For instance, Philippines is the largest in terms of loan amount, but no point appears for it.
+
+
+The problem is that the "region" name not always matches between both files. An approximate solution is to use the country instead of the region to map them.
+```{r}
+kiva_countries <- kiva_regions %>% 
+        group_by(.dots=c('country')) %>% 
+        summarise(world_region_imp = max(as.character(world_region), na.rm = T),
+                  lat_imp = median(lat),
+                  lon_imp = median(lon)
+                  )
+
+kiva_by_region <- merge(kiva_by_region, kiva_countries, by=c('country'), all.x = TRUE)
+kiva_with_region <- merge(kiva_with_region, kiva_countries, by=c('country'), all.x = TRUE)
+
+# Impute with the country region
+kiva_by_region$world_region[is.na(kiva_by_region$world_region)] <- kiva_by_region$world_region_imp[is.na(kiva_by_region$world_region)]
+kiva_with_region$world_region[is.na(kiva_with_region$world_region)] <- kiva_with_region$world_region_imp[is.na(kiva_with_region$world_region)]
+
+```
+
+```{r}
+unique(kiva_by_region$country[is.na(kiva_by_region$world_region)])
+```
+There are 25 countries still with no assigned world region. Further clean up is needed but it would require an external data source or doing it manually.
+We'll use an extra world region "UNKNOWN" to tag them
+```{r}
+levels(kiva_by_region$world_region) <- c(levels(kiva_by_region$world_region), 'UNKOWN')
+kiva_by_region$world_region[is.na(kiva_by_region$world_region)] <- 'UNKOWN'
+levels(kiva_with_region$world_region) <- c(levels(kiva_with_region$world_region), 'UNKOWN')
+kiva_with_region$world_region[is.na(kiva_with_region$world_region)] <- 'UNKOWN'
+```
+
+Clean up the data as discussed above
+```{r}
+kiva_by_region_clean <- kiva_by_region
+map_data_world <- map_data("world")
+map_data_world[,'world_region']<- NA
+map_data_world_split <- map_data_world[0:0,]
+regions_lims <- list(list(world_region='Latin America and Caribbean', ylim=c(-60,30), xlim=c(-120,-30)),
+                     list(world_region='Sub-Saharan Africa', ylim=c(-35,35), xlim=c(-30,60)),
+                     list(world_region='Arab States', ylim=c(-5,35), xlim=c(30,60)),
+                     list(world_region='East Asia and the Pacific', ylim=c(-60,180), xlim=c(90,1000)),
+                     list(world_region='Europe and Central Asia', ylim=c(20,200), xlim=c(-20,90)),
+                     list(world_region='South Asia', ylim=c(0,50), xlim=c(60,100))
+                     )
+for(rl in regions_lims){
+   new_part <- map_data_world[map_data_world$long>rl$xlim[1] & map_data_world$long<rl$xlim[2] & map_data_world$lat>rl$ylim[1] & map_data_world$lat<rl$ylim[2],]
+   new_part$world_region <- rl$world_region
+   map_data_world_split <- rbind(map_data_world_split, new_part)
+   mask <- !(kiva_by_region_clean$lon>rl$xlim[1] & kiva_by_region_clean$lon<rl$xlim[2] & kiva_by_region_clean$lat>rl$ylim[1] & kiva_by_region_clean$lat<rl$ylim[2])
+   mask[is.na(mask)] <- TRUE
+   mask <- mask & kiva_by_region_clean$world_region==rl$world_region
+   kiva_by_region_clean[mask, c('lat','lon')] <- NA
+   
+   mask <- !(kiva_by_region_clean$lon_imp>rl$xlim[1] & kiva_by_region_clean$lon_imp<rl$xlim[2] & kiva_by_region_clean$lat_imp>rl$ylim[1] & kiva_by_region_clean$lat_imp<rl$ylim[2])
+   mask[is.na(mask)] <- TRUE
+   mask <- mask & kiva_by_region_clean$world_region==rl$world_region
+   kiva_by_region_clean[mask, c('lat_imp','lon_imp')] <- NA
+}
+# Impute with the country median lat/lon
+kiva_by_region_clean[is.na(kiva_by_region_clean$lat), c('lat','lon')] <- kiva_by_region_clean[is.na(kiva_by_region_clean$lat), c('lat_imp','lon_imp')]
+kiva_with_region[is.na(kiva_by_region$lat), c('lat','lon')] <- kiva_with_region[is.na(kiva_by_region$lat), c('lat_imp','lon_imp')]
+
+```
+
+
+
+```{r, fig.width = 12}
+ggplot(kiva_by_region_clean[kiva_by_region_clean$world_region!='UNKOWN',])+
+  geom_polygon(data=map_data_world_split, aes(x = long, y = lat, group = group), fill="#F0F0F0", colour = "lightgray")+
+  geom_point(mapping = aes(x=lon, y=lat, size = loan_amount_sum), alpha=0.3, color='darkred', position = position_jitter(w = 1, h = 1))+
+  coord_quickmap()+
+  facet_wrap(~world_region,  scales = "free")+
+  ggtitle("Location of Loans by World Region") + 
+  scale_size(label = ff_mills(prefix ='$'), breaks = c(1e+6,2e+6,4e+6,6e+6))+
+  cits4009_map_theme
+```
+The plot seems more sensible now. Most loans accumulate around a few locations in each world region.
+
+### Data by sector, region and gender
+Analyze for what sector and activity the loans are for
+```{r, fig.width = 12}
+kiva_by_activity <- kiva_with_region %>% 
+        group_by(.dots=c('sector', 'activity')) %>% 
+        summarise(loan_amount_mean = mean(loan_amount, na.rm = T),
+                  loan_amount_sum = sum(loan_amount, na.rm = T)
+                  )
+
+
+
+ggplot(kiva_by_activity, ggplot2::aes(area = loan_amount_sum, 
+                                      label = activity,
+                                      subgroup = sector,
+                                      fill = sector)) + 
+  geom_treemap() +
+  geom_treemap_subgroup_border() +
+  geom_treemap_subgroup_text(place = "centre", grow = F, alpha = .5, colour =
+                             "White", fontface = "italic", min.size = 0) +
+  geom_treemap_text(colour = "black", place = "centre", reflow = T, alpha=0.7) +
+  ggtitle("Loan Amount By Sector/Activity") +
+  cits4009_theme
+```
+There are 3 main sectors, Agriculture, Retail and Food. Within the sectos, the much of the largest activities are not very usefully labeld (e.g Food in Food, Retail in Retail).
+
+Analyze if different world regions have different types of loans
+```{r, fig.width = 12, fig.height=6}
+kiva_by_activity_wregion <- kiva_with_region %>% 
+        group_by(.dots=c('sector', 'world_region')) %>% 
+        summarise(loan_amount_mean = mean(loan_amount, na.rm = T),
+                  loan_amount_sum = sum(loan_amount, na.rm = T),
+                  loan_count = sum(loan_amount*0+1, na.rm = T)
+                  )
+
+kiva_total_by_region <- kiva_by_activity_wregion %>% group_by(world_region) %>% summarise(total_loans = sum(loan_count, na.rm = T))
+
+kiva_by_activity_wregion <- merge(kiva_by_activity_wregion, kiva_total_by_region, by='world_region')
+
+kiva_by_activity_wregion$loan_percentage <- kiva_by_activity_wregion$loan_count / kiva_by_activity_wregion$total_loans * 100
+
+ggplot(kiva_by_activity_wregion, mapping = aes(x = sector, y = world_region)) + 
+  geom_count(mapping = aes(size=loan_percentage, color=loan_amount_sum)) +
+  ggtitle("Loans % of Region By Sector") +
+  scale_color_continuous(low = "black", high = "red", label = ff_mills(prefix ='$')) +
+  scale_size_continuous(range = c(0.1, 15), label = ff_percent(digits=0)) +
+  cits4009_theme +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 14),
+        axis.text.y = element_text(angle =  0, size = 14),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+  
+```
+We can see that there's difference in the way each region uses the loans. For instance, the Arab States have a larger percentage dedicated to "Education" than other regions. Sub-Saharan Africa and Latin America and Caribbean have very similar profiles.
+
+
+
+
+Analyze if the loan sector and borrower gender are related
+```{r, fig.width = 12, fig.height=6}
+
+# Create a "gender type" variable to summarize the gender information
+kiva_with_region$gender_type <- 'Unkown'
+kiva_with_region$gender_type[kiva_with_region$borrowers_females>0] <- 'Female'
+kiva_with_region$gender_type[kiva_with_region$borrowers_males>0] <- 'Male'
+kiva_with_region$gender_type[kiva_with_region$borrowers_females>0 & kiva_with_region$borrowers_males>0] <- 'Both'
+
+kiva_by_activity_gender_type <- kiva_with_region %>% 
+        group_by(.dots=c('sector', 'gender_type')) %>% 
+        summarise(loan_amount_mean = mean(loan_amount, na.rm = T),
+                  loan_amount_sum = sum(loan_amount, na.rm = T),
+                  loan_count = sum(loan_amount*0+1, na.rm = T)
+                  )
+
+kiva_total_by_gender_type <- kiva_by_activity_gender_type %>% group_by(gender_type) %>% summarise(total_loans = sum(loan_count, na.rm = T))
+
+kiva_by_activity_gender_type <- merge(kiva_by_activity_gender_type, kiva_total_by_gender_type, by='gender_type')
+
+kiva_by_activity_gender_type$loan_percentage <- kiva_by_activity_gender_type$loan_count / kiva_by_activity_gender_type$total_loans * 100
+
+ggplot(kiva_by_activity_gender_type, mapping = aes(x = sector, y = gender_type)) + 
+  #geom_tile(mapping = aes(fill=loan_amount_sum)) +
+  geom_count(mapping = aes(size=loan_percentage, color=loan_amount_sum)) +
+  ggtitle("Loans % of Gender Type By Sector") +
+  scale_color_continuous(low = "black", high = "red", label = ff_mills(prefix ='$')) +
+  scale_size_continuous(range = c(0.1, 15), label = ff_percent(digits=0)) +
+  cits4009_theme +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 14),
+        axis.text.y = element_text(angle =  0, size = 14),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+  
+```
+The 4 categories are very similar on their distribution of loan sector, but there are some differences. For instance, "Personal Use" loans are more common when the borrower include both genders.
+
+We can use Correspondence Analysis (CA) to further understand this correlation. CA provides a graphic method of exploring the relationship between variables in a contingency table
+```{r, fig.width = 12, fig.height=6}
+# Correspondence Analysis
+# Code in this block is adapted from https://www.statmethods.net/advstats/ca.html
+table <- dcast(kiva_by_activity_gender_type, gender_type~sector, value.var = "loan_count")
+rownames(table) <- table$gender_type
+table$gender_type <- NULL
+fit <- ca(table)
+# print(fit) # basic results
+# summary(fit) # extended results
+plot(fit, mass = TRUE, contrib = "absolute", map =
+   "rowgreen", arrows = c(FALSE, TRUE)) # asymmetric map 
+```
+We can see that Male borrowers are more related to Agriculture, Transportation, Construction and Education; Female with Arts, Retail, Clothing and Food, and that Personal Use is related with borrowers that include Both genders.
+
+Analyze if the world region and borrower gender are related
+```{r, fig.width = 12, fig.height=6}
+kiva_by_region_gender_type <- kiva_with_region %>% 
+        group_by(.dots=c('world_region', 'gender_type')) %>% 
+        summarise(loan_amount_mean = mean(loan_amount, na.rm = T),
+                  loan_amount_sum = sum(loan_amount, na.rm = T),
+                  loan_count = sum(loan_amount*0+1, na.rm = T)
+                  )
+
+kiva_by_region_gender_type <- merge(kiva_by_region_gender_type, kiva_total_by_region, by='world_region')
+
+kiva_by_region_gender_type$loan_percentage <- kiva_by_region_gender_type$loan_count / kiva_by_region_gender_type$total_loans * 100
+
+ggplot(kiva_by_region_gender_type, mapping = aes(x = gender_type, y = world_region)) + 
+  geom_count(mapping = aes(size=loan_percentage, color=loan_amount_sum)) +
+  ggtitle("Loans % of Region By Gender") +
+  scale_color_continuous(low = "black", high = "red", label = ff_mills(prefix ='$')) +
+  scale_size_continuous(range = c(0.1, 15), label = ff_percent(digits=0)) +
+  cits4009_theme +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 14),
+        axis.text.y = element_text(angle =  0, size = 14),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+  
+```
+Female borrowers are predominant in all regions, but this is even more marked in South Asia and East Asia and the Pacific.
+
+### Trend by time
+Analyze how much money was lend along the years.
+```{r, fig.width = 12}
+kiva_by_date <- kiva %>% 
+        group_by(.dots=c('date')) %>% 
+        summarise(loan_amount_mean = mean(loan_amount, na.rm = T),
+                  loan_amount_sum = sum(loan_amount, na.rm = T),
+                  loan_count = sum(loan_amount*0+1, na.rm = T)
+                  )
+ggplot(data = kiva_by_date, mapping = aes(x = date, y = loan_amount_sum)) +
+  geom_point() +
+  geom_smooth(span=0.1) +
+  ggtitle("Loan amount by day") + 
+  cits4009_theme
+```
+It is clear that there are two different groups. One might be weekdays and the other weekends.
+The following plot addresses this.
+```{r, fig.width = 12}
+kiva_by_date$weekday <- isWeekday(kiva_by_date$date, wday=1:5)
+
+ggplot(data = kiva_by_date, mapping = aes(x = date, y = loan_amount_sum, color = weekday)) +
+  geom_point() +
+  geom_smooth(span=0.1) +
+  ggtitle("Loan amount by day, split by Weekday/Weekend") + 
+  cits4009_theme
+```
+We can see that in fact weekends and weekdays have different distributions in terms of loan amount. The trend seems so be increasing slightly with time. There's a notorious drop by the end, but it might be due to incompletely loaded data for the last days of the data set.
+
+Now we repeat the analysis but split by "sector", as different sectors such as agriculture and retail might have different seasonality and general trends
+```{r, fig.width = 12}
+kiva_by_sector_month <- kiva_with_region[,c('date','sector','loan_amount')] %>% 
+        group_by(year(date),month(date),sector) %>% 
+        summarise(loan_amount_mean = mean(loan_amount, na.rm = T),
+                  loan_amount_sum = sum(loan_amount, na.rm = T),
+                  loan_count = sum(loan_amount*0+1, na.rm = T)
+                  )
+colnames(kiva_by_sector_month) <- c("year_date", "month_date", "sector", "loan_amount_mean", "loan_amount_sum", "loan_count")
+kiva_by_sector_month$month_number <- kiva_by_sector_month$year_date +(kiva_by_sector_month$month_date-1)/12
+
+kiva_by_sector_month <- kiva_by_sector_month[kiva_by_sector_month$year_date<2017,] # Only plot the full years
+
+ggplot(data = kiva_by_sector_month, mapping = aes(x = month_number, y = loan_amount_sum, color = sector)) +
+  geom_point() +
+  geom_line() +
+  ggtitle("Loan amount by month, split by Sector") + 
+  cits4009_theme
+
+ggplot(data = kiva_by_sector_month, mapping = aes(x = month_number, y = loan_count, color = sector)) +
+  geom_point() +
+  geom_line() +
+  ggtitle("Loans count by month, split by Sector") + 
+  cits4009_theme
+
+```
+We can take out the 3 larger sectors (Retail, Food and Agriculture) to better visualize the trend in the smaller sectors
+```{r, fig.width = 12}
+small_sectors <- !(kiva_by_sector_month$sector %in% c('Retail','Food','Agriculture'))
+ggplot(data = kiva_by_sector_month[small_sectors,], mapping = aes(x = month_number, y = loan_amount_sum, color = sector)) +
+  geom_point() +
+  geom_line() +
+  ggtitle("Loan amount by month, smaller sectors") + 
+  cits4009_theme
+
+ggplot(data = kiva_by_sector_month[small_sectors,], mapping = aes(x = month_number, y = loan_count, color = sector)) +
+  geom_point() +
+  geom_line() +
+  ggtitle("Loans count by month, smaller sectors") + 
+  cits4009_theme
+
+
+```
+There's been an increase in the number of loans belonging to the "Personal Use" and "Education" categories, that's been more steep than the increase of other popular categories such as Services, Clothing and Housing.
