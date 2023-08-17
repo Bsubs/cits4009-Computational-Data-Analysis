@@ -58,6 +58,13 @@ There are 995 observations of 28 variables, composed of 17 numerical, 7 characte
 ```{r}
 summary(youtube)
 ```
+## Transforming data
+The date of the creation of a YouTube channel is given in 3 separate variables, "created_year", "created_month" and "created_date". The following function connects them together in the format YYYY-MM-DD and adds a new column to the youtube data frame.
+```{r}
+youtube$new_date_column <- paste(youtube$created_year, match(youtube$created_month, month.abb), sprintf("%02d", youtube$created_date), sep = "-")
+```
+
+
 ## Dropping Variables / Observations
 
 ### Dropping duplicate variables 
@@ -109,7 +116,7 @@ for (country in countries_with_nan) {
 
 nan_counts_dataframe
 ```
-There are 95 observations which do not have a country listed, and accordingly, these observations are also missing the relevant demographic information. The last observation that is missing demographic information is the country of Andorra.
+There are 95 observations which do not have a country listed, and accordingly, these observations are also missing the relevant demographic information. The last observation that is missing demographic information is the country of Andorra. The following chunk will examine the 
 
 # Analysis of Data 
 
