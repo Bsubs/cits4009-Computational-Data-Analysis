@@ -506,19 +506,28 @@ using summary()</h2>
 ##  Max.   :842933962   Max.   : 61.92   Max.   : 138.25  
 ##  NA&#39;s   :123         NA&#39;s   :123      NA&#39;s   :123</code></pre>
 </div>
-<div id="dropping-variables-observations" class="section level2" number="2.4">
-<h2><span class="header-section-number">2.4</span> Dropping Variables /
+<div id="transforming-data" class="section level2" number="2.4">
+<h2><span class="header-section-number">2.4</span> Transforming
+data</h2>
+<p>The date of the creation of a YouTube channel is given in 3 separate
+variables, “created_year”, “created_month” and “created_date”. The
+following function connects them together in the format YYYY-MM-DD and
+adds a new column to the youtube data frame.</p>
+<pre class="r"><code>youtube$new_date_column &lt;- paste(youtube$created_year, match(youtube$created_month, month.abb), sprintf(&quot;%02f&quot;, youtube$created_date), sep = &quot;-&quot;)</code></pre>
+</div>
+<div id="dropping-variables-observations" class="section level2" number="2.5">
+<h2><span class="header-section-number">2.5</span> Dropping Variables /
 Observations</h2>
-<div id="dropping-duplicate-variables" class="section level3" number="2.4.1">
-<h3><span class="header-section-number">2.4.1</span> Dropping duplicate
+<div id="dropping-duplicate-variables" class="section level3" number="2.5.1">
+<h3><span class="header-section-number">2.5.1</span> Dropping duplicate
 variables</h3>
 <p>As mentioned in <strong><em>insert here</em></strong> section, the
 following duplicate columns will be dropped from the dataset</p>
 <pre class="r"><code>columns_to_drop &lt;- c(&quot;Title&quot;, &quot;channel_type&quot;, &quot;Abbreviation&quot;)
 youtube &lt;- youtube[, !(names(youtube) %in% columns_to_drop)]</code></pre>
 </div>
-<div id="dropping-observations-where-video-views-or-uploads-are-0" class="section level3" number="2.4.2">
-<h3><span class="header-section-number">2.4.2</span> Dropping
+<div id="dropping-observations-where-video-views-or-uploads-are-0" class="section level3" number="2.5.2">
+<h3><span class="header-section-number">2.5.2</span> Dropping
 observations where video views or uploads are 0</h3>
 <p>As seen from the summary of the data, there are channels with 0
 uploads or video views. We are not interested in these channels as the
@@ -526,8 +535,8 @@ data is likely to be incorrect given their pouplarity. Therefore, all
 observations with video views or uploads equal to 0 will be removed.</p>
 <pre class="r"><code>youtube &lt;- youtube[(youtube$video.views != 0) &amp; (youtube$uploads != 0), ]</code></pre>
 </div>
-<div id="dropping-observations-where-created_date-2005" class="section level3" number="2.4.3">
-<h3><span class="header-section-number">2.4.3</span> Dropping
+<div id="dropping-observations-where-created_date-2005" class="section level3" number="2.5.3">
+<h3><span class="header-section-number">2.5.3</span> Dropping
 observations where created_date &lt; 2005</h3>
 <p>YouTube was founded in 2005, therefore any observation with a channel
 creation year prior to 2005 are mistakes and will be removed from the
@@ -535,8 +544,8 @@ data frame.</p>
 <pre class="r"><code>youtube &lt;- youtube[youtube$created_year &gt;= 2005, ]</code></pre>
 </div>
 </div>
-<div id="analyzing-nan-values" class="section level2" number="2.5">
-<h2><span class="header-section-number">2.5</span> Analyzing NaN
+<div id="analyzing-nan-values" class="section level2" number="2.6">
+<h2><span class="header-section-number">2.6</span> Analyzing NaN
 Values</h2>
 <p>As mentioned in <strong><em>insert here</em></strong> section, there
 are a number of NaN values that have been spotted in the data. The
@@ -546,12 +555,6 @@ detected by the r function <code>is.nan()</code> and “nan” values which
 are not counted by that function. Therefore, a modification to the
 counting function was required to acquire the full scope of the NaN
 values.</p>
-<pre class="r"><code>count_nan_values &lt;- function(dataframe) {
-  nan_counts &lt;- sapply(dataframe, function(col) sum(is.nan(col) | is.na(col) | col==&quot;nan&quot;))
-  nan_counts &lt;- nan_counts[nan_counts &gt; 0]
-  nan_counts
-}
-count_nan_values(youtube)</code></pre>
 <pre><code>##                                category                                 Country 
 ##                                      39                                      95 
 ##                            country_rank                       channel_type_rank 
@@ -564,56 +567,23 @@ count_nan_values(youtube)</code></pre>
 ##                                      96                                      96 
 ##                                Latitude                               Longitude 
 ##                                      96                                      96</code></pre>
-<pre class="r"><code>columns_of_interest &lt;- c(&quot;Population&quot;, &quot;Unemployment.rate&quot;, &quot;Urban_population&quot;, &quot;Latitude&quot;, &quot;Longitude&quot;)
-countries_with_nan &lt;- youtube$Country[apply(youtube[columns_of_interest], 1, function(row) any(is.nan(row) | is.na(row)))]
-# Filter out unique country names and remove duplicates
-countries_with_nan &lt;- unique(countries_with_nan)
-# Create an empty dataframe to store the results
-nan_counts_dataframe &lt;- data.frame(Country = character(0), Population = integer(0), Unemployment = integer(0), Urban = integer(0), Latitude = integer(0), Longitude = integer(0))
-# Loop through each country and calculate NaN counts
-for (country in countries_with_nan) {
-  country_rows &lt;- youtube$Country == country
-  nan_counts &lt;- apply(youtube[country_rows, columns_of_interest], 2, function(col) sum(is.nan(col) | is.na(col)))
-  nan_counts_dataframe &lt;- rbind(nan_counts_dataframe, cbind(Country = country, as.data.frame(t(nan_counts))))
-}
-
-nan_counts_dataframe</code></pre>
 <pre><code>##   Country Population Unemployment.rate Urban_population Latitude Longitude
 ## 1     nan         95                95               95       95        95
 ## 2 Andorra          1                 1                1        1         1</code></pre>
 <p>There are 95 observations which do not have a country listed, and
 accordingly, these observations are also missing the relevant
 demographic information. The last observation that is missing
-demographic information is the country of Andorra.</p>
+demographic information is the country of Andorra. The following chunk
+will examine the</p>
 </div>
 </div>
 <div id="analysis-of-data" class="section level1" number="3">
 <h1><span class="header-section-number">3</span> Analysis of Data</h1>
-<pre class="r"><code>numeric_columns &lt;- sapply(youtube, is.numeric)
-youtube_numeric &lt;- youtube[, numeric_columns]
-ui &lt;- fluidPage(
-  titlePanel(&quot;Numeric Variable Distribution&quot;),
-  sidebarLayout(
-    sidebarPanel(
-      selectInput(&quot;variable&quot;, &quot;Select a Numeric Variable:&quot;, choices = colnames(youtube_numeric))
-    ),
-    mainPanel(
-      plotOutput(&quot;kde_plot&quot;)
-    )
-  )
-)
-
-server &lt;- function(input, output) {
-  output$kde_plot &lt;- renderPlot({
-    ggplot(youtube_numeric, aes_string(x = input$variable, fill = input$variable)) +
-      geom_density(alpha = 0.5) +
-      labs(title = paste(&quot;KDE Plot of&quot;, input$variable), x = input$variable, y = &quot;Density&quot;) +
-      theme_minimal()
-  })
-}
-
-shinyApp(ui, server)</code></pre>
+<div id="single-variable-plots" class="section level2" number="3.1">
+<h2><span class="header-section-number">3.1</span> Single Variable
+Plots</h2>
 <div style="width: 100% ; height: 400px ; text-align: center; box-sizing: border-box; -moz-box-sizing: border-box; -webkit-box-sizing: border-box;" class="muted well">Shiny applications not supported in static R Markdown documents</div>
+</div>
 </div>
 
 

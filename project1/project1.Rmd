@@ -42,7 +42,7 @@ cits4009_theme <- theme_few() + # Theme based on S. Few's "Practical Rules for U
 
 *Loading the data:*
 ```{r}
-path <- './data/Global YouTube Statistics.csv'
+path <- './data/youtube_UTF_8.csv'
 youtube <- read.csv(path)
 ```
 
@@ -61,7 +61,7 @@ summary(youtube)
 ## Transforming data
 The date of the creation of a YouTube channel is given in 3 separate variables, "created_year", "created_month" and "created_date". The following function connects them together in the format YYYY-MM-DD and adds a new column to the youtube data frame.
 ```{r}
-youtube$new_date_column <- paste(youtube$created_year, match(youtube$created_month, month.abb), sprintf("%02d", youtube$created_date), sep = "-")
+youtube$new_date_column <- paste(youtube$created_year, match(youtube$created_month, month.abb), sprintf("%02f", youtube$created_date), sep = "-")
 ```
 
 
@@ -91,7 +91,7 @@ youtube <- youtube[youtube$created_year >= 2005, ]
 
 ## Analyzing NaN Values
 As mentioned in ***insert here*** section, there are a number of NaN values that have been spotted in the data. The following chunk shows the counts of NaN values for each variable.It is worth noting that the data set uses both NaN values, which can be detected by the r function `is.nan()` and "nan" values which are not counted by that function. Therefore, a modification to the counting function was required to acquire the full scope of the NaN values. 
-```{r}
+```{r, echo=FALSE}
 count_nan_values <- function(dataframe) {
   nan_counts <- sapply(dataframe, function(col) sum(is.nan(col) | is.na(col) | col=="nan"))
   nan_counts <- nan_counts[nan_counts > 0]
@@ -100,7 +100,7 @@ count_nan_values <- function(dataframe) {
 count_nan_values(youtube)
 ```
 
-```{r}
+```{r, echo=FALSE}
 columns_of_interest <- c("Population", "Unemployment.rate", "Urban_population", "Latitude", "Longitude")
 countries_with_nan <- youtube$Country[apply(youtube[columns_of_interest], 1, function(row) any(is.nan(row) | is.na(row)))]
 # Filter out unique country names and remove duplicates
@@ -120,48 +120,128 @@ There are 95 observations which do not have a country listed, and accordingly, t
 
 # Analysis of Data 
 
-```{r}
+## Single Variable Plots
+
+### Numerical Data
+
+The following chart visualizes the numerical variables in the data set as a shiny application. There are options for three types of charts, box plots, histograms and density plots. Furthermore, as this data set contains a large number of outliers, we have the option to limit the viewing of the charts to the 4 quartiles to improve the viewing experience. 
+```{r, echo=FALSE}
 numeric_columns <- sapply(youtube, is.numeric)
 youtube_numeric <- youtube[, numeric_columns]
-# Define UI
+# UI part of the Shiny app
 ui <- fluidPage(
-  titlePanel("Variable Density Plot"),
-  
+  titlePanel("YouTube Data Visualization"),
   sidebarLayout(
     sidebarPanel(
-      sliderInput("bandwidth", "Bandwidth", min = 0.01, max = 20, value = 0.2, step = 0.01),
-      selectInput("variable", "Select Variable", choices = colnames(youtube_numeric), selected = colnames(youtube_numeric)[1])
+      selectInput("x_var", "Select X Variable:", choices = colnames(youtube_numeric)),
+      selectInput("plot_type", "Select Plot Type:",
+                  choices = c("Boxplot", "Density Plot", "Histogram")),
+      conditionalPanel(
+        condition = "input.plot_type == 'Histogram'",
+        sliderInput("binwidth", "Binwidth:", min = 1, max = 100, value = 5)
+      ),
+      checkboxInput("limit_range", "Limit to Q1-Q3 Range", value = FALSE)
     ),
-    
     mainPanel(
-      plotOutput("density_plot")
+      plotOutput("plot")
+    )
+  )
+)
+
+# Server part of the Shiny app
+server <- function(input, output) {
+  output$plot <- renderPlot({
+    x_var <- input$x_var
+    plot_type <- input$plot_type
+    limit_range <- input$limit_range
+    binwidth <- input$binwidth
+    
+    p <- ggplot(youtube_numeric, aes_string(x = x_var))
+    if (limit_range) {
+      p <- p +  
+            switch(plot_type,
+           "Boxplot" = geom_boxplot(),
+           "Density Plot" = geom_density(),
+           "Histogram" = geom_histogram(binwidth = binwidth, aes_string(x = x_var))) +
+        labs(title = paste(plot_type, " (Q1-Q3 Range)")) +
+        xlim(boxplot.stats(youtube_numeric[[x_var]])$stats[1], boxplot.stats(youtube_numeric[[x_var]])$stats[4])
+    } else {
+      p <- p +
+        switch(plot_type,
+               "Boxplot" = geom_boxplot(),
+               "Density Plot" = geom_density(),
+               "Histogram" = geom_histogram(aes_string(x = x_var), binwidth = binwidth)) +
+        labs(title = plot_type)
+    }
+    
+    print(p)
+  })
+}
+
+# Run the Shiny app
+shinyApp(ui, server)
+```
+
+### Categorical Data
+
+```{r, echo=FALSE}
+categorical_columns <- sapply(youtube, function(col) !is.numeric(col))
+youtube_categorical <- youtube[, categorical_columns]
+
+# Update the UI with the slider input
+ui <- fluidPage(
+  titlePanel("YouTube Categorical Data Analysis"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput(inputId = "variable", label = "Select a variable:", 
+                  choices = colnames(youtube_categorical)),
+      sliderInput(inputId = "num_levels", label = "Number of Levels to Show:",
+                  min = 10, max = 995, value = 10, step = 1)
+    ),
+    mainPanel(
+      plotOutput(outputId = "barplot")
     )
   )
 )
 
 # Define server
 server <- function(input, output) {
-  output$density_plot <- renderPlot({
-    ggplot(youtube_numeric, aes(x = youtube_numeric[[input$variable]])) +
-      geom_density(aes(fill = input$variable), alpha = 0.5, adjust = input$bandwidth) +
-      labs(x = input$variable, y = "Density") +
-      theme_minimal() +
-      theme(legend.position = "none") +
-      geom_vline(aes(xintercept = mean(youtube_numeric[[input$variable]], na.rm = TRUE)), color = "red", linetype = "dashed") +
-      geom_vline(aes(xintercept = median(youtube_numeric[[input$variable]], na.rm = TRUE)), color = "blue", linetype = "dashed") +
-      xlim(min(youtube_numeric[[input$variable]], na.rm = TRUE), max(youtube_numeric[[input$variable]], na.rm = TRUE)) +
-      geom_text(aes(label = paste("Mean =", round(mean(youtube_numeric[[input$variable]], na.rm = TRUE), 2))), 
-                x = mean(youtube_numeric[[input$variable]], na.rm = TRUE), y = 0.1, color = "red") +
-      geom_text(aes(label = paste("Median =", round(median(youtube_numeric[[input$variable]], na.rm = TRUE), 2))), 
-                x = median(youtube_numeric[[input$variable]], na.rm = TRUE), y = 0.15, color = "blue") +
-      labs(title = "Density Plot with Adjustable Bandwidth")
+  output$barplot <- renderPlot({
+    selected_variable <- input$variable
+    num_levels_to_show <- input$num_levels  # Get the selected number of levels
+    
+    # Count the levels of the selected categorical variable
+    counts <- youtube_categorical %>% 
+      count(.data[[selected_variable]])
+    
+    # Sort levels by counts in descending order
+    sorted_levels <- counts %>% 
+      arrange(desc(n)) %>% 
+      pull(.data[[selected_variable]])
+    
+    # Reorder the factor levels based on sorted levels
+    youtube_categorical[[selected_variable]] <- factor(
+      youtube_categorical[[selected_variable]],
+      levels = sorted_levels
+    )
+    
+    # Subset data based on selected number of levels and create plot
+    subset_data <- youtube_categorical %>%
+      filter(.data[[selected_variable]] %in% sorted_levels[1:num_levels_to_show])
+    
+    ggplot(data = subset_data, aes(x = reorder(.data[[selected_variable]], desc(.data[[selected_variable]])))) +
+      geom_bar() +
+      coord_flip() +  
+      labs(title = paste("Bar Chart of", selected_variable),
+           x = selected_variable,
+           y = "Count")
   })
 }
 
 # Run the app
-shinyApp(ui, server)
+shinyApp(ui = ui, server = server)
 ```
-
+## Multi Variable Plots
 
 
 
