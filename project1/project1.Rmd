@@ -30,6 +30,8 @@ library(reshape2)
 library(ca)
 library(shiny)
 library(knitr)
+library(shinyWidgets)
+library(hexbin)
 ```
 
 The following code chunk sets up a theme for the charts used in this document. This is to ensure that all figures are coherent to improve the user viewing experience.
@@ -140,7 +142,9 @@ ui <- fluidPage(
         condition = "input.plot_type == 'Histogram'",
         sliderInput("binwidth", "Binwidth:", min = 1, max = 100, value = 5)
       ),
-      checkboxInput("limit_range", "Limit to Q1-Q3 Range", value = FALSE)
+      checkboxInput("limit_range", "Limit to Q1-Q3 Range", value = FALSE),
+      selectInput("second_plot_type", "Superimpose Second Plot:",
+                  choices = c("None", "Boxplot", "Density Plot", "Histogram"))
     ),
     mainPanel(
       plotOutput("plot")
@@ -155,14 +159,16 @@ server <- function(input, output) {
     plot_type <- input$plot_type
     limit_range <- input$limit_range
     binwidth <- input$binwidth
+    second_plot_type <- input$second_plot_type
     
     p <- ggplot(youtube_numeric, aes_string(x = x_var))
+    
     if (limit_range) {
-      p <- p +  
-            switch(plot_type,
-           "Boxplot" = geom_boxplot(),
-           "Density Plot" = geom_density(),
-           "Histogram" = geom_histogram(binwidth = binwidth, aes_string(x = x_var))) +
+      p <- p +
+        switch(plot_type,
+               "Boxplot" = geom_boxplot(),
+               "Density Plot" = geom_density(),
+               "Histogram" = geom_histogram(binwidth = binwidth, aes_string(x = x_var))) +
         labs(title = paste(plot_type, " (Q1-Q3 Range)")) +
         xlim(boxplot.stats(youtube_numeric[[x_var]])$stats[1], boxplot.stats(youtube_numeric[[x_var]])$stats[4])
     } else {
@@ -172,6 +178,28 @@ server <- function(input, output) {
                "Density Plot" = geom_density(),
                "Histogram" = geom_histogram(aes_string(x = x_var), binwidth = binwidth)) +
         labs(title = plot_type)
+    }
+    
+    if (second_plot_type != "None" & limit_range) {
+      second_plot <- ggplot(youtube_numeric, aes_string(x = x_var))
+      second_plot <- second_plot +
+        switch(second_plot_type,
+               "Boxplot" = geom_boxplot(color = "red"),
+               "Density Plot" = geom_density(fill = "red", alpha = 0.5),
+               "Histogram" = geom_histogram(aes_string(x = x_var), binwidth = binwidth, fill = "red", alpha = 0.5)) +
+        theme_void() +  # Remove axis labels and ticks from the second plot 
+        xlim(boxplot.stats(youtube_numeric[[x_var]])$stats[1], boxplot.stats(youtube_numeric[[x_var]])$stats[4])
+      p <- p + annotation_custom(ggplotGrob(second_plot), xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf)
+    }
+    else {
+      second_plot <- ggplot(youtube_numeric, aes_string(x = x_var))
+      second_plot <- second_plot +
+        switch(second_plot_type,
+               "Boxplot" = geom_boxplot(color = "red"),
+               "Density Plot" = geom_density(fill = "red", alpha = 0.5),
+               "Histogram" = geom_histogram(aes_string(x = x_var), binwidth = binwidth, fill = "red", alpha = 0.5)) +
+        theme_void()  # Remove axis labels and ticks from the second plot 
+      p <- p + annotation_custom(ggplotGrob(second_plot), xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf)
     }
     
     print(p)
@@ -188,7 +216,6 @@ shinyApp(ui, server)
 categorical_columns <- sapply(youtube, function(col) !is.numeric(col))
 youtube_categorical <- youtube[, categorical_columns]
 
-# Update the UI with the slider input
 ui <- fluidPage(
   titlePanel("YouTube Categorical Data Analysis"),
   sidebarLayout(
@@ -244,9 +271,120 @@ shinyApp(ui = ui, server = server)
 ## Multi Variable Plots
 
 
+### Continuous Variables
 
 
+Test
+```{r, echo=FALSE}
+# Update the UI with the slider input
+ui <- fluidPage(
+  titlePanel("YouTube Numerical Multivariable Data Analysis"),
+  sidebarLayout(
+    sidebarPanel(
+          selectInput("plot_type", "Select plot type:", 
+                      choices = c("Pairwise", "Scatter", "geom_smooth", "Overlay", "geom_bin2d", "geom_count")),
+          conditionalPanel(
+            condition = "input.plot_type == 'Pairwise'",
+            pickerInput(
+              inputId = "selected_attributes",
+              label = "Select attributes:",
+              choices = colnames(youtube_numeric),
+              multiple = TRUE,
+              options = list(`actions-box` = TRUE)
+            )
+          ),
+          conditionalPanel(
+            condition = "input.plot_type == 'Scatter'|| input.plot_type == 'geom_smooth' || input.plot_type == 'Overlay' ||
+            input.plot_type == 'geom_bin2d' || input.plot_type == 'geom_count'",
+            selectInput("x_attr", "Select x-axis attribute:", colnames(youtube_numeric)),
+            selectInput("y_attr", "Select y-axis attribute:", colnames(youtube_numeric)),
+            conditionalPanel(
+              condition = "input.plot_type == 'Scatter'",
+              selectInput(
+                inputId = "aes_attr_1",
+                label = "Select Aesthetic Type:",
+                choices = c("None", "Group", "Color", "Size", "Alpha", "Shape"),
+              ),
+              conditionalPanel(
+                condition = "input.aes_attr_1 != 'None'",
+                selectInput("factor_attr_1", "Select factor attribute:", colnames(youtube_categorical))
+              )
+            ),
+            conditionalPanel(
+              condition = "input.plot_type == 'geom_smooth'",
+              selectInput(
+                inputId = "aes_attr_2",
+                label = "Select Aesthetic Type:",
+                choices = c("None", "Color", "Size", "Alpha", "Shape"),
+              ),
+              conditionalPanel(
+                condition = "input.aes_attr_2 != 'None'",
+                selectInput("factor_attr_2", "Select factor attribute:", colnames(youtube_categorical))
+              )
+            ),
+            conditionalPanel(
+              condition = "input.plot_type == 'geom_count'",
+              sliderInput(inputId = "alpha_levels", label = "Alpha:",
+                  min = 0.05, max = 1, value = 0.25, step = 0.05)
+            )
+          )
+    ),
+    mainPanel(
+          plotOutput("plot")
+        )
+  )
+)
 
+# Define server
+server <- function(input, output) {
+  output$plot <- renderPlot({
+    selected_plot <- input$plot_type
+    if(selected_plot == "Pairwise") {
+      selected_attrs <- input$selected_attributes
+      if (length(selected_attrs) < 2) {
+        return(NULL)
+      }
+      pairs(youtube_numeric[, selected_attrs])
+      
+    } else {
+        x_attr <- input$x_attr
+        y_attr <- input$y_attr
+        if(selected_plot == "Scatter") {
+          if(input$aes_attr_1 == "None"){
+            ggplot(youtube_numeric, aes_string(x = x_attr, y = y_attr)) +
+            geom_point()
+          }
+          else {
+            aes_attr <- input$aes_attr_1
+            factor_attr <- input$factor_attr_1
+            ggplot(youtube_numeric, mapping = aes_string(x = x_attr, y = y_attr, color = factor(youtube_numeric$country) )) + geom_point()
+          }
+          
+        } else if(selected_plot == "geom_smooth") {
+          ggplot(youtube_numeric, aes_string(x = x_attr, y = y_attr)) +
+            geom_smooth()
+          
+        } else if(selected_plot == "Overlay") {
+          ggplot(youtube_numeric, aes_string(x = x_attr, y = y_attr)) +
+            geom_point()+geom_smooth()
+        
+        } else if(selected_plot == "geom_bin2d") {
+          ggplot(youtube_numeric, aes_string(x = x_attr, y = y_attr)) +
+            geom_hex()
+          
+        } else if(selected_plot == "geom_count") {
+          alpha_attr <- input$alpha_levels
+          ggplot(youtube_numeric) +
+            geom_count(mapping = aes_string(x = x_attr, y = y_attr, alpha = alpha_attr ))
+        }
+    }
+    
+  })
+}
+
+# Run the app
+shinyApp(ui = ui, server = server)
+```
 
 
 
