@@ -283,6 +283,7 @@ ui <- fluidPage(
     sidebarPanel(
           selectInput("plot_type", "Select plot type:", 
                       choices = c("Pairwise", "Scatter", "geom_smooth", "Overlay", "geom_bin2d", "geom_count")),
+          checkboxInput("limit_range", "Limit to Q1-Q3 Range", value = FALSE),
           conditionalPanel(
             condition = "input.plot_type == 'Pairwise'",
             pickerInput(
@@ -357,7 +358,9 @@ server <- function(input, output) {
           else {
             aes_attr <- input$aes_attr_1
             factor_attr <- input$factor_attr_1
-            ggplot(youtube_numeric, mapping = aes_string(x = x_attr, y = y_attr, color = factor(youtube_numeric$country) )) + geom_point()
+            print(youtube$factor_attr)
+            ggplot(youtube_numeric, mapping = aes_string(x = x_attr, y = y_attr, 
+                                                         color = factor(youtube[[factor_attr]]) )) + geom_point()
           }
           
         } else if(selected_plot == "geom_smooth") {
