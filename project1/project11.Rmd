@@ -1,0 +1,440 @@
+---
+title: "CITS4009 - Project 1"
+author: "Joo Kai Tay (22489437)"
+date: "2023-08-07"
+output: 
+  html_document:
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+The data set analyzed can be obtained from the Kaggle platform. <https://www.kaggle.com/datasets/nelgiriyewithana/global-youtube-statistics-2023>
+
+This data set contains information about 995 of the most subscribed YouTube channels in the world. The data set includes variables such as subscriber count, video views, upload frequency, country of origin and earnings.
+
+# Data loading, overview and set up
+
+Load libraries
+
+```{r message=FALSE, warning=FALSE}
+library(ggplot2)
+library(gridExtra)
+library(dplyr)
+library(ggthemes)
+library(numform)
+library(treemapify)
+library(timeDate)
+library(lubridate)
+library(dplyr)
+library(reshape2)
+library(ca)
+library(shiny)
+library(knitr)
+library(shinyWidgets)
+library(hexbin)
+library(tidyverse)
+library(ggrepel)
+```
+
+*Loading the data:*
+
+```{r}
+path <- './data/youtube_UTF_8.csv'
+youtube <- read.csv(path)
+```
+
+# Using R functions to explore the data
+
+```{r}
+str(youtube)
+```
+
+There are 995 observations of 28 variables, composed of 17 numerical, 7 character and 4 integer variables. It is of note that there are a number of overlapping variables in this data set, namely "Youtuber" and "Title", "category" and "channel_type" and "Country" and "Abbreviation". These will be dealt with in \***insert here** section. There are also some NaN values already visible from this brief inspection of the data which will need to be dealt with before displaying the data.
+
+## Analyzing the data using summary()
+
+```{r}
+summary(youtube)
+```
+
+The summary() function gives the statistics for each numeric column including minimum, maximum, 1st Quartile, 3rd Quartile, median and mean. From this information, we can identify some obvious problems with the data provided. For certain variables such as `video.views`, `uploads`, `video_views_for_the_last_30_days`, `lowest_monthly_earnings`, `highest_monthly_earnings`, `lowest_yearly_earnings`, `highest_yearly_earnings`have a minimum value of 0. The `video_views_for_the_last_30_days` could be explained by channels which are no longer active and the variables related to earnings could be due to channels that were never monetized. However, `video.views`and `uploads` present a problem. It is explicitly stated in the description of the data set that it relates to the top Youtube creators. Therefore, it is odd that a channel would have 0 videos uploaded and 0 views. This is a sign that the data collected about these channels is most likely erroneous.
+
+## Analyzing the data using head()
+
+```{r}
+head(youtube)
+```
+
+Upon inspection of the first 6 rows of data, another issue stands out. For certain variables such as `category`, `country` and `Abbreviation`, `nan` is used to represent missing data. However, these values will not be picked up by the `is.na()` function that R offers, which only recognized `NaN` or `NA`. We will need to transform these values to get a full understanding of the missing values in the data set.
+
+# Visualisation
+
+## Shiny App
+
+```{r}
+# Creating seperate dataframes for numeric and categorical data
+categorical_columns <- sapply(youtube, function(col) !is.numeric(col))
+youtube_categorical <- youtube[, categorical_columns]
+numeric_columns <- sapply(youtube, is.numeric)
+youtube_numeric <- youtube[, numeric_columns]
+
+ui <- fluidPage(
+  titlePanel("YouTube Data Visualization"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("x_var", "Select X Variable:", choices = colnames(youtube)),
+      selectInput("y_var", "Select Y Variable:", choices = c("None", colnames(youtube))),
+      # Single Variable Plots
+      conditionalPanel(
+        condition = "input.y_var == 'None'",
+        # Numeric Plots
+        conditionalPanel(
+          condition = "output.isNumeric == true",
+          selectInput("plot_type_numeric", "Select Plot Type:",
+                            choices = c("Boxplot", "Density Plot", "Histogram")),
+          conditionalPanel(
+            condition = "input.plot_type == 'Histogram'",
+            sliderInput("binwidth", "Binwidth:", min = 1, max = 100, value = 5)
+          ),
+          checkboxInput("limit_range", "Limit to Q1-Q3 Range", value = FALSE),
+          selectInput("second_plot_type_numeric", "Superimpose Second Plot:",
+                      choices = c("None", "Boxplot", "Density Plot", "Histogram"))
+        ),
+        # Categorical Plots
+        conditionalPanel(
+          condition = "output.isNumeric == false",
+          sliderInput(inputId = "num_levels", label = "Number of Levels to Show:",
+                  min = 10, max = 995, value = 10, step = 1)
+        )
+      ),
+      # Multi-variable Plots
+      conditionalPanel(
+        condition = "input.y_var != 'None'",
+        # 2 Numeric
+        conditionalPanel(
+          condition = "output.multiVariable == 0",
+          #GUIDE !
+          selectInput("plot_type_multivariable_numeric", "Select plot type:", 
+            choices = c("Pairwise", "Scatter", "geom_smooth", "Overlay", "geom_bin2d", "geom_count")),
+          checkboxInput("limit_range_multivariable_numeric", "Limit to Q1-Q3 Range", value = FALSE),
+          conditionalPanel(
+            condition = "input.plot_type == 'Pairwise'",
+            pickerInput(
+              inputId = "selected_attributes",
+              label = "Select attributes:",
+              choices = colnames(youtube_numeric),
+              multiple = TRUE,
+              options = list(`actions-box` = TRUE)
+            )
+          ),
+          conditionalPanel(
+            condition = "input.plot_type_multivariable_numeric == 'Scatter'|| input.plot_type == 'geom_smooth' || input.plot_type == 'Overlay' ||
+            input.plot_type == 'geom_bin2d' || input.plot_type == 'geom_count'",
+            conditionalPanel(
+              condition = "input.plot_type_multivariable_numeric == 'Scatter'",
+              selectInput(
+                inputId = "aes_attr_1",
+                label = "Select Aesthetic Type:",
+                choices = c("None", "Color", "Size"),
+              ),
+              conditionalPanel(
+                condition = "input.aes_attr_1 != 'None'",
+                selectInput("factor_attr_1", "Select factor attribute:", colnames(youtube_categorical))
+              )
+            ),
+            conditionalPanel(
+              condition = "input.plot_type_multivariable_numeric == 'geom_smooth'",
+              selectInput(
+                inputId = "aes_attr_2",
+                label = "Select Aesthetic Type:",
+                choices = c("None", "Color", "Line Type"),
+              ),
+              conditionalPanel(
+                condition = "input.aes_attr_2 != 'None'",
+                selectInput("factor_attr_2", "Select factor attribute:", colnames(youtube_categorical))
+              )
+            ),
+            conditionalPanel(
+              condition = "input.plot_type_multivariable_numeric == 'geom_count'",
+              sliderInput(inputId = "alpha_levels", label = "Alpha:",
+                  min = 0.05, max = 1, value = 0.25, step = 0.05)
+            )
+          )
+          #GUIDE 2
+        ),
+        # 2 Categorical
+        conditionalPanel(
+          condition = "output.multiVariable == 1",
+          selectInput("plot_type_multivariable_categorical", "Select plot type:", 
+            choices = c("geom_count", "geom_tile", "Stacked bar chart", "Side-by-side bar chart", "Filled bar chart", "Overlaying bar chart"))
+        ),
+        # 1 Numeric 1 Categorical
+        conditionalPanel(
+          condition = "output.multiVariable == 2",
+          div("Three",style="color:red; height:400px")
+        )
+      )
+    ),
+    mainPanel(
+      plotOutput("plot")
+    )
+  )
+)
+
+server <- function(input, output, session) {
+  output$isNumeric <- reactive({
+    is.numeric(youtube[[input$x_var]])
+  })
+  outputOptions(output, 'isNumeric', suspendWhenHidden = FALSE)
+  
+  output$multiVariable <- reactive({
+    # Check is y var is empty
+    if (input$y_var != "None") {
+      if (is.numeric(youtube[[input$x_var]]) & is.numeric(youtube[[input$y_var]])) {
+        return(0)
+      }
+      else if (!is.numeric(youtube[[input$x_var]]) & !is.numeric(youtube[[input$y_var]])) {
+        return (1)
+      }
+      else if((!is.numeric(youtube[[input$x_var]]) & is.numeric(youtube[[input$y_var]])) | (is.numeric(youtube[[input$x_var]]) & !is.numeric(youtube[[input$y_var]]))) {
+        return(2)
+      }
+    }
+  })
+  outputOptions(output, 'multiVariable', suspendWhenHidden = FALSE)
+  
+  output$plot <- renderPlot({
+    x_var <- input$x_var
+    y_var <- input$y_var
+    
+    # Single Variable Plots
+    if(y_var == "None") {
+      # Numeric Plots
+      if(is.numeric(youtube[[x_var]])) {
+        plot_type_numeric <- input$plot_type_numeric
+        limit_range <- input$limit_range
+        binwidth <- input$binwidth
+        second_plot_type_numeric <- input$second_plot_type_numeric
+        
+        p <- ggplot(youtube, aes_string(x = x_var))
+    
+        if (limit_range) {
+          p <- p + xlim(boxplot.stats(youtube[[x_var]])$stats[1], boxplot.stats(youtube[[x_var]])$stats[4]) +
+            labs(title = paste(plot_type_numeric, " (Q1-Q3 Range)"))
+        } else {
+          p <- p + labs(title = plot_type_numeric)
+        }
+        p <- p + switch(plot_type_numeric,
+                   "Boxplot" = geom_boxplot(),
+                   "Density Plot" = geom_density(),
+                   "Histogram" = geom_histogram(binwidth = binwidth, aes_string(x = x_var), colour="black", fill="white"))
+        
+        if (second_plot_type_numeric != "None" & limit_range) {
+          second_plot <- ggplot(youtube, aes_string(x = x_var))
+          second_plot <- second_plot +
+            switch(second_plot_type_numeric,
+                   "Boxplot" = geom_boxplot(color = "red"),
+                   "Density Plot" = geom_density(fill = "red", alpha = 0.2),
+                   "Histogram" = geom_histogram(aes_string(x = x_var), binwidth = binwidth, fill = "red", alpha = 0.2)) +
+            theme_void() +  # Remove axis labels and ticks from the second plot 
+            xlim(boxplot.stats(youtube[[x_var]])$stats[1], boxplot.stats(youtube[[x_var]])$stats[4])
+          p <- p + annotation_custom(ggplotGrob(second_plot), xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf)
+        }
+        else {
+          second_plot <- ggplot(youtube, aes_string(x = x_var))
+          second_plot <- second_plot +
+            switch(second_plot_type_numeric,
+                   "Boxplot" = geom_boxplot(color = "red"),
+                   "Density Plot" = geom_density(fill = "red", alpha = 0.2),
+                   "Histogram" = geom_histogram(aes_string(x = x_var), binwidth = binwidth, fill = "red", alpha = 0.2)) +
+            theme_void()  # Remove axis labels and ticks from the second plot 
+          p <- p + annotation_custom(ggplotGrob(second_plot), xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf)
+        }
+        
+        print(p)
+        
+      } else {
+        # Categorical Plots
+        selected_variable <- input$x_var
+        num_levels_to_show <- input$num_levels  # Get the selected number of levels
+        
+        # Count the levels of the selected categorical variable
+        counts <- youtube %>% 
+          count(.data[[selected_variable]])
+        
+        # Sort levels by counts in descending order
+        sorted_levels <- counts %>% 
+          arrange(desc(n)) %>% 
+          pull(.data[[selected_variable]])
+        
+        # Reorder the factor levels based on sorted levels
+        youtube[[selected_variable]] <- factor(
+          youtube[[selected_variable]],
+          levels = sorted_levels
+        )
+        
+        # Subset data based on selected number of levels and create plot
+        subset_data <- youtube %>%
+          filter(.data[[selected_variable]] %in% sorted_levels[1:num_levels_to_show])
+        
+        ggplot(data = subset_data, aes(x = reorder(.data[[selected_variable]], desc(.data[[selected_variable]])))) +
+          geom_bar() +
+          coord_flip() +  
+          labs(title = paste("Bar Chart of", selected_variable),
+               x = selected_variable,
+               y = "Count")
+      }
+      
+    } else {
+      # Multivariable Plots
+      if (is.numeric(youtube[[input$x_var]]) & is.numeric(youtube[[input$y_var]])) {
+        selected_plot <- input$plot_type_multivariable_numeric
+        limit_range <- input$limit_range_multivariable_numeric
+        if(selected_plot == "Pairwise") {
+          selected_attrs <- input$selected_attributes
+          if (length(selected_attrs) < 2) {
+            return(NULL)
+          }
+          pairs(youtube_numeric[, selected_attrs])
+          
+        } else {
+            x_attr <- input$x_var
+            y_attr <- input$y_var
+            p <- ggplot(youtube_numeric, aes_string(x = x_attr, y = y_attr))
+            if(selected_plot == "Scatter") {
+              aes_attr <- input$aes_attr_1
+              factor_attr <- input$factor_attr_1
+              if(aes_attr == "None"){
+                p <- p + geom_point()
+              }
+              else if(aes_attr == "Color"){
+                p <- ggplot(youtube_numeric, mapping = aes_string(x = x_attr, y = y_attr, 
+                                                             color = factor(youtube[[factor_attr]]) )) + geom_point()
+              }
+              else if(aes_attr == "Size") {
+                p <- ggplot(youtube_numeric, mapping = aes_string(x = x_attr, y = y_attr, 
+                                                             size = factor(youtube[[factor_attr]]) )) + geom_point()
+              }
+              
+            } else if(selected_plot == "geom_smooth") {
+              aes_attr <- input$aes_attr_2
+              factor_attr <- input$factor_attr_2
+              if(aes_attr == "None"){
+                p <- p + geom_smooth()
+              }
+              else if(aes_attr == "Color"){
+                p <- ggplot(youtube_numeric, mapping = aes_string(x = x_attr, y = y_attr, 
+                                                             color = factor(youtube[[factor_attr]]) )) + geom_smooth()
+              }
+              else if(aes_attr == "Line Type") {
+                p <- ggplot(youtube_numeric, mapping = aes_string(x = x_attr, y = y_attr, 
+                                                             linetype = factor(youtube[[factor_attr]]) )) + geom_smooth()
+              }
+              
+            } else if(selected_plot == "Overlay") {
+              p <- p + geom_point() + geom_smooth()
+            
+            } else if(selected_plot == "geom_bin2d") {
+              p <- p + geom_hex()
+              
+            } else if(selected_plot == "geom_count") {
+              alpha_attr <- input$alpha_levels
+              p <- ggplot(youtube_numeric) +
+                geom_count(mapping = aes_string(x = x_attr, y = y_attr, alpha = alpha_attr ))
+            }
+            if(limit_range){
+              p <- p + xlim(boxplot.stats(youtube_numeric[[x_attr]])$stats[1], boxplot.stats(youtube_numeric[[x_attr]])$stats[4]) +
+                ylim(boxplot.stats(youtube_numeric[[y_attr]])$stats[1], boxplot.stats(youtube_numeric[[y_attr]])$stats[4])
+            }
+            print(p)
+        }
+      }
+      # 2 Categorical variables
+      else if (!is.numeric(youtube[[input$x_var]]) & !is.numeric(youtube[[input$y_var]])) {
+        plot_type <- input$plot_type_multivariable_categorical
+        p <- ggplot(youtube)
+        if(plot_type == "geom_count") {
+          p <- p + geom_count(mapping=aes(x=youtube[[x_var]], y = youtube[[y_var]])) + 
+            labs(title = paste("Geom_Count of", youtube[[x_var]], "and", youtube[[y_var]]),
+               x = youtube[[x_var]],
+               y = youtube[[y_var]]) +
+            theme(axis.text.x = element_text(angle = 45, hjust = 1))
+        }
+        else if(plot_type == "geom_tile") {
+          counting <- count(youtube, youtube[[x_var]], youtube[[y_var]])
+          p <- ggplot(data=counting, mapping=aes(x=counting[, 1], y=counting[, 2])) +
+            geom_tile(aes(fill=n), color="white", lwd=1.5,linetype=1) + 
+            theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+            labs(title = paste("Geom_Tile of", youtube[[x_var]], "and", youtube[[y_var]]))
+        }
+        else {
+          p <- p + switch(plot_type,
+                          "Stacked bar chart" = geom_bar(aes(x=youtube[[x_var]], fill = youtube[[y_var]]), position="stack"),
+                          "Side-by-side bar chart" = geom_bar(aes(x=youtube[[x_var]], fill = youtube[[y_var]]), position="dodge"),
+                          "Filled bar chart" = geom_bar(aes(x=youtube[[x_var]], fill = youtube[[y_var]]), position="fill"),
+                          "Overlaying bar chart" = geom_bar(aes(x=youtube[[x_var]], fill = youtube[[y_var]]), position="identity")
+                          ) +
+            theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+            labs(title = paste("Bar Chart of", youtube[[x_var]], "and", youtube[[y_var]]))
+            
+        }
+        
+        print(p)
+        
+      }
+      else if((!is.numeric(youtube[[input$x_var]]) & is.numeric(youtube[[input$y_var]])) | (is.numeric(youtube[[input$x_var]]) & !is.numeric(youtube[[input$y_var]]))) {
+        x_var_n <- ""
+        y_var_n <- ""
+        if(is.numeric(youtube[[input$x_var]])) {
+          x_var_n <- y_var
+          y_var_n <- x_var
+        }
+        else {
+          x_var_n <- x_var
+          y_var_n <- y_var
+        }
+        summary_df <- youtube %>%
+          group_by(.data[[x_var_n]]) %>%
+          summarise(total = sum(.data[[y_var_n]]))
+        
+        p <- bar_chart <- ggplot(summary_df, aes(x = .data[[x_var_n]], y = total)) +
+          geom_bar(stat = "identity", fill = "blue") +
+          xlab(x_var_n) +
+          ylab(y_var_n) +
+          theme(axis.text.x = element_text(angle = 45, hjust = 1))
+        print(p)
+      }
+    }
+  
+  
+  })
+}
+
+shinyApp(ui = ui, server = server)
+```
+
+```{r}
+ui <- fluidPage(
+  numericInput("num", "Choose a number", 1.1, 1, 10),
+  conditionalPanel(
+    condition = "output.square",
+    div("That's a perfect square!", style = "color:red; height:400px;"),
+    style = "display: none;"
+  )
+)
+
+server <- function(input, output, session) {
+  output$square <- reactive({
+    sqrt(as.numeric(input$num)) %% 1 == 0
+  })
+  outputOptions(output, 'square', suspendWhenHidden = FALSE)
+}
+
+shinyApp(ui = ui, server = server)
+```
+
