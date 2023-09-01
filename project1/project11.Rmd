@@ -17,6 +17,36 @@ The data set analyzed can be obtained from the Kaggle platform. <https://www.kag
 
 This data set contains information about 995 of the most subscribed YouTube channels in the world. The data set includes variables such as subscriber count, video views, upload frequency, country of origin and earnings.
 
+## Variable Description
+**rank**: Position of the YouTube channel based on the number of subscribers
+**Youtuber**: Name of the YouTube channel
+**subscribers**: Number of subscribers to the channel
+**video views**: Total views across all videos on the channel
+**category**: Category or niche of the channel
+**Title**: Title of the YouTube channel
+**uploads**: Total number of videos uploaded on the channel
+**Country**: Country where the YouTube channel originates
+**Abbreviation**: Abbreviation of the country
+**channel_type**: Type of the YouTube channel (e.g., individual, brand)
+**video_views_rank**: Ranking of the channel based on total video views
+**country_rank**: Ranking of the channel based on the number of subscribers within its country
+**channel_type_rank**: Ranking of the channel based on its type (individual or brand)
+**video_views_for_the_last_30_days**: Total video views in the last 30 days
+**lowest_monthly_earnings**: Lowest estimated monthly earnings from the channel
+**highest_monthly_earnings**: Highest estimated monthly earnings from the channel
+**lowest_yearly_earnings**: Lowest estimated yearly earnings from the channel
+**highest_yearly_earnings**: Highest estimated yearly earnings from the channel
+**subscribers_for_last_30_days**: Number of new subscribers gained in the last 30 days
+**created_year**: Year when the YouTube channel was created
+**created_month**: Month when the YouTube channel was created
+**created_date**: Exact date of the YouTube channel's creation
+**Gross tertiary education enrollment (%)**: Percentage of the population enrolled in tertiary education in the country
+**Population**: Total population of the country
+**Unemployment rate**: Unemployment rate in the country
+**Urban_population**: Percentage of the population living in urban areas
+**Latitude**: Latitude coordinate of the country's location
+**Longitude**: Longitude coordinate of the country's location
+
 # Data loading, overview and set up
 
 Load libraries
@@ -54,7 +84,9 @@ youtube <- read.csv(path)
 str(youtube)
 ```
 
-There are 995 observations of 28 variables, composed of 17 numerical, 7 character and 4 integer variables. It is of note that there are a number of overlapping variables in this data set, namely "Youtuber" and "Title", "category" and "channel_type" and "Country" and "Abbreviation". These will be dealt with in \***insert here** section. There are also some NaN values already visible from this brief inspection of the data which will need to be dealt with before displaying the data.
+There are 995 observations of 28 variables, composed of 17 numerical, 7 character and 4 integer variables. It is of note that there are a number of overlapping variables in this data set, namely "Youtuber" and "Title", "category" and "channel_type" and "Country" and "Abbreviation". These variables will need to be inspected to find out if there are any notable differences between them. 
+
+The country rank variable also has a NaN value in it, we will need to explore the data to determine if this appears in any of the other geographical variables. 
 
 ## Analyzing the data using summary()
 
@@ -64,6 +96,13 @@ summary(youtube)
 
 The summary() function gives the statistics for each numeric column including minimum, maximum, 1st Quartile, 3rd Quartile, median and mean. From this information, we can identify some obvious problems with the data provided. For certain variables such as `video.views`, `uploads`, `video_views_for_the_last_30_days`, `lowest_monthly_earnings`, `highest_monthly_earnings`, `lowest_yearly_earnings`, `highest_yearly_earnings`have a minimum value of 0. The `video_views_for_the_last_30_days` could be explained by channels which are no longer active and the variables related to earnings could be due to channels that were never monetized. However, `video.views`and `uploads` present a problem. It is explicitly stated in the description of the data set that it relates to the top Youtube creators. Therefore, it is odd that a channel would have 0 videos uploaded and 0 views. This is a sign that the data collected about these channels is most likely erroneous.
 
+The `created_year` variable has a minimum of 1970 which is likely to be erroneous as YouTube was created in 2005. The following code displays all values that are less than 2005:
+```{r}
+filtered_rows <- youtube[(!is.na(youtube$created_year) & youtube$created_year < 2005), ]
+filtered_rows
+```
+
+
 ## Analyzing the data using head()
 
 ```{r}
@@ -72,11 +111,108 @@ head(youtube)
 
 Upon inspection of the first 6 rows of data, another issue stands out. For certain variables such as `category`, `country` and `Abbreviation`, `nan` is used to represent missing data. However, these values will not be picked up by the `is.na()` function that R offers, which only recognized `NaN` or `NA`. We will need to transform these values to get a full understanding of the missing values in the data set.
 
+## NA Values in the dataset 
+
+The following is the count of NA values in each column of the data set. The function has been modified to use both the in-built function `is.na()` as well as to account for any values which have the value `nan`.
+
+```{r, echo=FALSE}
+count_nan_values <- function(dataframe) {
+  sapply(dataframe, function(col) sum(is.na(col) | col == "nan"))
+}
+nacounts <- count_nan_values(youtube)
+hasNA = which(nacounts > 0)
+nacounts[hasNA]
+```
+### Geographical Variables
+From the previous table, it can be seen that there are 123 observations missing for each of the geographical variables. The same observations are all missing the geographical and demographic information. 
+```{r}
+summary(youtube[is.na(youtube$Population), c("Unemployment.rate", "Urban_population", "Latitude", "Longitude", "Gross.tertiary.education.enrollment....")])
+```
+## Unique values in categorical variables
+Upon examining the unique levels in the categorical variables, some questions arise:
+- There are 19 categories but 15 channel types, we will examine them to see the differences
+- There are 995 Youtubers but only 992 unique channel titles, have some of the channels been recorded twice?
+- There are 13 months 
+```{r}
+non_numeric_cols <- youtube %>%
+  select_if(~ !is.numeric(.)) %>%
+  colnames()
+
+unique_value_counts <- youtube %>%
+  select(all_of(non_numeric_cols)) %>%
+  summarise(across(everything(), ~ n_distinct(.)))
+
+unique_value_counts
+```
+### Displaying the unique values in months
+The 13th value that we saw in the created_months column turns out to be `nan` which was recognized as a unique value as it did not follow the R convention to use `NaN` or `NA`.
+```{r}
+unique_months <- unique(youtube$created_month)
+unique_months
+```
+
 # Visualisation
+
+## Single Variable Plots
+
+### Countries 
+The following chart shows the top 10 Countries in Youtube by number of channels. The United States had the most number of channels at 31.46%, followed by India at 16.88%. The `nan` values show up again with 12.26% of observation having a missing value in this category. 
+
+```{r, echo=FALSE}
+category_counts <- table(youtube$Country)
+pie_data <- data.frame(
+  category_counts
+)
+
+pie_data <- pie_data %>% arrange(desc(Freq))
+top_10 <- head(pie_data, 10)
+rest <- tail(pie_data, -10)
+others <- data.frame(Var1 = "others", Freq = sum(rest$Freq))
+final_pie_data <- rbind(top_10, others)
+total_sum <- sum(pie_data$Freq)
+final_pie_data <- final_pie_data %>%
+  mutate(Percentage = round((Freq / total_sum) * 100, 2))
+
+# Get the positions
+pie_pos <- final_pie_data %>% 
+  mutate(csum = rev(cumsum(rev(Freq))), 
+         pos = Freq/2 + lead(csum, 1),
+         pos = if_else(is.na(pos), Freq/2, pos))
+
+
+
+ggplot(final_pie_data, aes(x = "" , y = Freq, fill = fct_inorder(Var1))) +
+  geom_col(width = 1, color = 1) +
+  coord_polar(theta = "y") +
+  geom_label_repel(data = pie_pos,
+                   aes(y = pos, label = paste0(Percentage, "%")),
+                   size = 4.5, nudge_x = 1, show.legend = FALSE) +
+  guides(fill = guide_legend(title = "Group")) +
+  theme_void()
+```
+# Created Year
+
+The following graph shows the number of channels created each year from 2005 - 2023. When interpreting this data, it is important to remember that the dataset is of the 995 most subscribed channels on YouTube. Therefore, the steep decline in number of channels after the year 2014 does not represent that fewer channels are being created on YouTube. Instead, it means that channels that were created post 2014 have not had sufficient time to amass a large following of subscribers compared to channels that were created earlier. This is why there are fewer channels from2014 - 2023 represented in this dataset.
+
+```{r, echo=FALSE}
+# Counting the number of channels created each year
+yearly_counts <- table(youtube$created_year)
+
+# Creating the plot
+ggplot(data=as.data.frame(yearly_counts), aes(x=Var1, y=Freq)) + 
+  geom_line(aes(group=1), color="dodgerblue") +
+  geom_point(color="dodgerblue") +
+  theme_minimal() +
+  labs(title="Number of Channels Created Each Year", x="Year", y="Number of Channels Created") +
+  theme(panel.grid.major = element_line(color="grey", size=0.5),
+        panel.grid.minor = element_blank())
+```
+## Multivariable Plots
+
 
 ## Shiny App
 
-```{r}
+```{r, echo=FALSE}
 # Creating seperate dataframes for numeric and categorical data
 categorical_columns <- sapply(youtube, function(col) !is.numeric(col))
 youtube_categorical <- youtube[, categorical_columns]
@@ -120,10 +256,10 @@ ui <- fluidPage(
           condition = "output.multiVariable == 0",
           #GUIDE !
           selectInput("plot_type_multivariable_numeric", "Select plot type:", 
-            choices = c("Pairwise", "Scatter", "geom_smooth", "Overlay", "geom_bin2d", "geom_count")),
+            choices = c("Scatter", "geom_smooth", "Pairwise", "Overlay", "geom_bin2d", "geom_count")),
           checkboxInput("limit_range_multivariable_numeric", "Limit to Q1-Q3 Range", value = FALSE),
           conditionalPanel(
-            condition = "input.plot_type == 'Pairwise'",
+            condition = "input.plot_type_multivariable_numeric == 'Pairwise'",
             pickerInput(
               inputId = "selected_attributes",
               label = "Select attributes:",
@@ -390,6 +526,7 @@ server <- function(input, output, session) {
       else if((!is.numeric(youtube[[input$x_var]]) & is.numeric(youtube[[input$y_var]])) | (is.numeric(youtube[[input$x_var]]) & !is.numeric(youtube[[input$y_var]]))) {
         x_var_n <- ""
         y_var_n <- ""
+        # Making sure that the variables are in the correct order
         if(is.numeric(youtube[[input$x_var]])) {
           x_var_n <- y_var
           y_var_n <- x_var
@@ -418,23 +555,4 @@ server <- function(input, output, session) {
 shinyApp(ui = ui, server = server)
 ```
 
-```{r}
-ui <- fluidPage(
-  numericInput("num", "Choose a number", 1.1, 1, 10),
-  conditionalPanel(
-    condition = "output.square",
-    div("That's a perfect square!", style = "color:red; height:400px;"),
-    style = "display: none;"
-  )
-)
-
-server <- function(input, output, session) {
-  output$square <- reactive({
-    sqrt(as.numeric(input$num)) %% 1 == 0
-  })
-  outputOptions(output, 'square', suspendWhenHidden = FALSE)
-}
-
-shinyApp(ui = ui, server = server)
-```
 
