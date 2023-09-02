@@ -56,10 +56,6 @@ library(ggplot2)
 library(gridExtra)
 library(dplyr)
 library(ggthemes)
-library(numform)
-library(treemapify)
-library(timeDate)
-library(lubridate)
 library(dplyr)
 library(reshape2)
 library(ca)
@@ -153,9 +149,7 @@ unique_months
 
 # Visualisation
 
-## Single Variable Plots
-
-### Countries 
+## Channel counts by country
 The following chart shows the top 10 Countries in Youtube by number of channels. The United States had the most number of channels at 31.46%, followed by India at 16.88%. The `nan` values show up again with 12.26% of observation having a missing value in this category. 
 
 ```{r, echo=FALSE}
@@ -181,7 +175,7 @@ pie_pos <- final_pie_data %>%
 
 
 
-ggplot(final_pie_data, aes(x = "" , y = Freq, fill = fct_inorder(Var1))) +
+ggplot(final_pie_data, aes(x = "" , y = Freq, fill = fct_inorder(Var1)), width = 12, height = 12) +
   geom_col(width = 1, color = 1) +
   coord_polar(theta = "y") +
   geom_label_repel(data = pie_pos,
@@ -190,11 +184,47 @@ ggplot(final_pie_data, aes(x = "" , y = Freq, fill = fct_inorder(Var1))) +
   guides(fill = guide_legend(title = "Group")) +
   theme_void()
 ```
-# Created Year
 
-The following graph shows the number of channels created each year from 2005 - 2023. When interpreting this data, it is important to remember that the dataset is of the 995 most subscribed channels on YouTube. Therefore, the steep decline in number of channels after the year 2014 does not represent that fewer channels are being created on YouTube. Instead, it means that channels that were created post 2014 have not had sufficient time to amass a large following of subscribers compared to channels that were created earlier. This is why there are fewer channels from2014 - 2023 represented in this dataset.
+Another way of displaying number of channels by country is show on the map below. Larger circles indicate the presence of more channels in the country. From this plot, we can see at least one instance of erroneous data where a channel is plotted in the middle of the ocean on the left of the map.
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, warning=FALSE, message=FALSE, error=FALSE}
+country_coords <- youtube %>%
+  filter(!is.na(Latitude) & !is.na(Longitude)) %>%
+  group_by(Latitude, Longitude) %>%
+  summarise(Count = n()) %>%
+  ungroup()
+
+ggplot(country_coords)+
+  geom_polygon(data=map_data("world"), aes(x = long, y = lat, group = group), fill="#F0F0F0", colour = "lightgray")+
+  geom_point(mapping = aes(x=Longitude, y=Latitude, size=Count), alpha=0.7, color='darkred')+
+  coord_quickmap()+
+  ggtitle("Location of Channels") + 
+  theme(panel.grid = element_blank(),
+      panel.border = element_blank(),
+      legend.position="top", legend.direction = 'horizontal',
+      axis.title.x=element_blank(),
+      axis.text.x=element_blank(),
+      axis.ticks.x=element_blank(),
+      axis.title.y=element_blank(),
+      axis.text.y=element_blank(),
+      axis.ticks.y=element_blank())
+```
+
+## Category Analysis
+There are two variables used to represent type of channel in the YouTube data set, `channel_type` and `category`. The following filled bar chart shows how the two descriptors differ. 
+
+```{r}
+ggplot(youtube) + 
+geom_bar(aes(x=channel_type, fill = category), position="fill") +
+theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+```
+
+
+### Created Year
+
+The following graph shows the number of channels created each year from 2005 - 2023. When interpreting this data, it is important to remember that the dataset is of the 995 most subscribed channels on YouTube. Therefore, the steep decline in number of channels after the year 2014 does not represent that fewer channels are being created on YouTube. Instead, it means that channels that were created post 2014 have not had sufficient time to amass a large following of subscribers compared to channels that were created earlier. This is why there are fewer channels from 2014 - 2023 represented in this dataset.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, error=FALSE}
 # Counting the number of channels created each year
 yearly_counts <- table(youtube$created_year)
 
@@ -207,12 +237,63 @@ ggplot(data=as.data.frame(yearly_counts), aes(x=Var1, y=Freq)) +
   theme(panel.grid.major = element_line(color="grey", size=0.5),
         panel.grid.minor = element_blank())
 ```
+
+Now that we have seen the general trend of channels created, let us explore it by category.The plot below shows the cumulative subscriber count for each category from 2005 - 2022. 
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, error=FALSE, fig.height = 6, fig.width = 10}
+# Create new date col
+month_numeric <- match(youtube$created_month, month.abb)
+youtube$date <- as.Date(paste(youtube$created_year, month_numeric, youtube$created_date, sep = "-"))
+
+youtube_category_by_month <- youtube[,c('date','channel_type','subscribers')] %>% 
+        group_by(year(date),channel_type) %>% 
+        summarise(subscribers_amount_sum = sum(subscribers, na.rm = T))
+                  
+colnames(youtube_category_by_month) <- c("year_date", "channel_type", "subscriber_amount_sum")
+youtube_category_by_month <- subset(youtube_category_by_month, year_date != 1970) #remove outlier affecting plot
+
+youtube_category_by_month <- youtube_category_by_month %>%
+  arrange(year_date) %>%
+  group_by(channel_type) %>%
+  mutate(cumulative_subscribers = cumsum(as.numeric(subscriber_amount_sum))) #deal with overflow
+
+ggplot(data = youtube_category_by_month, mapping = aes(x = year_date, y = cumulative_subscribers, color = channel_type)) +
+  geom_point() +
+  geom_line() +
+  ggtitle("Total subscriber count by year, split by channel_type") +
+  labs(
+    x = "Year",
+    y = "Subscribers"
+  )
+
+```
+
+Facet wrap is used to display each category individually. Some trends can be observed:
+- Comedy, Entertainment, News and Music have grown steadily year over year
+- Growth in Sports have plateaued following a sharp increase in 2010
+- Animals, Nonprofit and Autos are not very popular channel types, with no growth in recent years
+
+```{r, echo=FALSE, fig.height = 6, fig.width = 10}
+ggplot(data = youtube_category_by_month, mapping = aes(x = year_date, y = cumulative_subscribers, color = channel_type)) +
+  geom_point() +
+  geom_line() +
+  ggtitle("Subscriber count by year, split by channel_type") +
+  facet_wrap(~channel_type, scales = "free_y") +
+  labs(
+    x = "Year",
+    y = "Subscribers"
+  ) +
+  theme(legend.position = "none")
+```
+
+
+
 ## Multivariable Plots
 
 
 ## Shiny App
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, fig.height = 6, fig.width = 10}
 # Creating seperate dataframes for numeric and categorical data
 categorical_columns <- sapply(youtube, function(col) !is.numeric(col))
 youtube_categorical <- youtube[, categorical_columns]
@@ -234,7 +315,7 @@ ui <- fluidPage(
           selectInput("plot_type_numeric", "Select Plot Type:",
                             choices = c("Boxplot", "Density Plot", "Histogram")),
           conditionalPanel(
-            condition = "input.plot_type == 'Histogram'",
+            condition = "input.plot_type_numeric == 'Histogram'",
             sliderInput("binwidth", "Binwidth:", min = 1, max = 100, value = 5)
           ),
           checkboxInput("limit_range", "Limit to Q1-Q3 Range", value = FALSE),

@@ -37,7 +37,7 @@ cits4009_theme <- theme_few() + # Theme based on S. Few's "Practical Rules for U
 
 Load the main data
 ```{r}
-data.path <- './data/kiva_loans.csv'
+data.path <- './kiva_loans.csv'
 kiva <- read.csv(data.path)
 ```
 
@@ -287,7 +287,7 @@ ggplot(kiva_by_country, mapping=aes(x=country, y=loan_amount_sum))+
 The site offers a secondary file with extra information about the regions, such as geographical coordinates and world region.
 Load and merge this data.
 ```{r}
-kiva_regions <- read.csv('./data/kiva_mpi_region_locations.csv')
+kiva_regions <- read.csv('./kiva_mpi_region_locations.csv')
 
 kiva_by_region <- kiva %>% 
         group_by(.dots=c('country', 'region')) %>% 
