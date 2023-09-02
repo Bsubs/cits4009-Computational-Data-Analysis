@@ -18,34 +18,62 @@ The data set analyzed can be obtained from the Kaggle platform. <https://www.kag
 This data set contains information about 995 of the most subscribed YouTube channels in the world. The data set includes variables such as subscriber count, video views, upload frequency, country of origin and earnings.
 
 ## Variable Description
-**rank**: Position of the YouTube channel based on the number of subscribers
-**Youtuber**: Name of the YouTube channel
-**subscribers**: Number of subscribers to the channel
-**video views**: Total views across all videos on the channel
-**category**: Category or niche of the channel
-**Title**: Title of the YouTube channel
-**uploads**: Total number of videos uploaded on the channel
-**Country**: Country where the YouTube channel originates
-**Abbreviation**: Abbreviation of the country
-**channel_type**: Type of the YouTube channel (e.g., individual, brand)
-**video_views_rank**: Ranking of the channel based on total video views
-**country_rank**: Ranking of the channel based on the number of subscribers within its country
-**channel_type_rank**: Ranking of the channel based on its type (individual or brand)
-**video_views_for_the_last_30_days**: Total video views in the last 30 days
-**lowest_monthly_earnings**: Lowest estimated monthly earnings from the channel
-**highest_monthly_earnings**: Highest estimated monthly earnings from the channel
-**lowest_yearly_earnings**: Lowest estimated yearly earnings from the channel
-**highest_yearly_earnings**: Highest estimated yearly earnings from the channel
-**subscribers_for_last_30_days**: Number of new subscribers gained in the last 30 days
-**created_year**: Year when the YouTube channel was created
-**created_month**: Month when the YouTube channel was created
-**created_date**: Exact date of the YouTube channel's creation
-**Gross tertiary education enrollment (%)**: Percentage of the population enrolled in tertiary education in the country
-**Population**: Total population of the country
-**Unemployment rate**: Unemployment rate in the country
-**Urban_population**: Percentage of the population living in urban areas
-**Latitude**: Latitude coordinate of the country's location
-**Longitude**: Longitude coordinate of the country's location
+
+- **rank**: Position of the YouTube channel based on the number of subscribers
+
+- **Youtuber**: Name of the YouTube channel
+
+- **subscribers**: Number of subscribers to the channel
+
+- **video views**: Total views across all videos on the channel
+
+- **category**: Category or niche of the channel
+
+- **Title**: Title of the YouTube channel
+
+- **uploads**: Total number of videos uploaded on the channel
+
+- **Country**: Country where the YouTube channel originates
+
+- **Abbreviation**: Abbreviation of the country
+
+- **channel_type**: Type of the YouTube channel (e.g., individual, brand)
+
+- **video_views_rank**: Ranking of the channel based on total video views
+
+- **country_rank**: Ranking of the channel based on the number of subscribers within its country
+
+- **channel_type_rank**: Ranking of the channel based on its type (individual or brand)
+
+- **video_views_for_the_last_30_days**: Total video views in the last 30 days
+
+- **lowest_monthly_earnings**: Lowest estimated monthly earnings from the channel
+
+- **highest_monthly_earnings**: Highest estimated monthly earnings from the channel
+
+- **lowest_yearly_earnings**: Lowest estimated yearly earnings from the channel
+
+- **highest_yearly_earnings**: Highest estimated yearly earnings from the channel
+
+- **subscribers_for_last_30_days**: Number of new subscribers gained in the last 30 days
+
+- **created_year**: Year when the YouTube channel was created
+
+- **created_month**: Month when the YouTube channel was created
+
+- **created_date**: Exact date of the YouTube channel's creation
+
+- **Gross tertiary education enrollment (%)**: Percentage of the population enrolled in tertiary education in the country
+
+- **Population**: Total population of the country
+
+- **Unemployment rate**: Unemployment rate in the country
+
+- **Urban_population**: Percentage of the population living in urban areas
+
+- **Latitude**: Latitude coordinate of the country's location
+
+- **Longitude**: Longitude coordinate of the country's location
 
 # Data loading, overview and set up
 
@@ -65,6 +93,7 @@ library(shinyWidgets)
 library(hexbin)
 library(tidyverse)
 library(ggrepel)
+library(vtreat)
 ```
 
 *Loading the data:*
@@ -213,7 +242,7 @@ ggplot(country_coords)+
 ## Category Analysis
 There are two variables used to represent type of channel in the YouTube data set, `channel_type` and `category`. The following filled bar chart shows how the two descriptors differ. 
 
-```{r}
+```{r, echo=FALSE}
 ggplot(youtube) + 
 geom_bar(aes(x=channel_type, fill = category), position="fill") +
 theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
@@ -268,9 +297,12 @@ ggplot(data = youtube_category_by_month, mapping = aes(x = year_date, y = cumula
 
 ```
 
-Facet wrap is used to display each category individually. Some trends can be observed:
+Due to the large values in Entertainment and Music, the other channel types are not being displayed well. Facet wrap is used to display each category individually with it's own scale to allow easier visulization of trends over the years. Some trends can be observed:
+
 - Comedy, Entertainment, News and Music have grown steadily year over year
+
 - Growth in Sports have plateaued following a sharp increase in 2010
+
 - Animals, Nonprofit and Autos are not very popular channel types, with no growth in recent years
 
 ```{r, echo=FALSE, fig.height = 6, fig.width = 10}
@@ -286,9 +318,137 @@ ggplot(data = youtube_category_by_month, mapping = aes(x = year_date, y = cumula
   theme(legend.position = "none")
 ```
 
+## Investigating Income 
+
+In this section, we investigate the vairables that influence the earning potential of YouTubers. The plot does not show any strong correlation between `subscribers` and `video.views` with `highest_yearly_earnings`. However, The presence of outliers greats limits the visualization of the data.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, error=FALSE, fig.height = 6, fig.width = 10}
+subscribers_plot <- ggplot(youtube, aes(x = youtube$subscribers, y = youtube$highest_yearly_earnings)) + 
+                      geom_point(mapping = aes_string(x = youtube$subscribers, y = youtube$highest_yearly_earnings, 
+                                                             color = factor(youtube[["channel_type"]]))) +
+                      geom_smooth() +
+                      labs(x = "Subscribers", y = "Highest Yearly Earnings", 
+                          title = "Relationship between Subscribers and Earnings") 
+
+video_views_plot <- ggplot(youtube, aes(x = youtube$video.views, y = youtube$highest_yearly_earnings)) + 
+                      geom_point(mapping = aes_string(x = youtube$video.views, y = youtube$highest_yearly_earnings, 
+                                                             color = factor(youtube[["channel_type"]]))) +
+                      geom_smooth()+
+                      labs(x = "Video Views", y = "Highest Yearly Earnings", 
+                                           title = "Relationship between Video Views and Earnings") 
+
+grid.arrange(
+  subscribers_plot + theme_minimal() + theme(legend.position = "none"),
+  video_views_plot + theme_minimal() + theme(legend.position = "none"),
+  ncol = 2
+)
+```
+
+Zooming into the data by limiting the X and Y axes to Q1-Q4, we still see no correlation between `subscribers` and `video.views` with `highest_yearly_earnings`. In fact, the points seem to be randomly distributed across the entire range. However, an interesting point to note is that in both plots, there is a large number of channels with 0 as their highest yearly income. This suggests that there are a significant number of YouTube channels that have not been monetized.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, error=FALSE, fig.height = 6, fig.width = 10}
+subscribers_plot <- ggplot(youtube, aes(x = youtube$subscribers, y = youtube$highest_yearly_earnings)) + 
+                      geom_point(mapping = aes_string(x = youtube$subscribers, y = youtube$highest_yearly_earnings, 
+                                                             color = factor(youtube[["channel_type"]]))) +
+                      geom_smooth() +
+                      labs(x = "Subscribers", y = "Highest Yearly Earnings", 
+                          title = "Relationship between Subscribers and Earnings") +
+                      xlim(boxplot.stats(youtube[["subscribers"]])$stats[1], boxplot.stats(youtube[["subscribers"]])$stats[4]) +
+                      ylim(boxplot.stats(youtube[["highest_yearly_earnings"]])$stats[1], boxplot.stats(youtube[["highest_yearly_earnings"]])$stats[4])
+
+video_views_plot <- ggplot(youtube, aes(x = youtube$video.views, y = youtube$highest_yearly_earnings)) + 
+                      geom_point(mapping = aes_string(x = youtube$video.views, y = youtube$highest_yearly_earnings, 
+                                                             color = factor(youtube[["channel_type"]]))) +
+                      geom_smooth()+
+                      labs(x = "Video Views", y = "Highest Yearly Earnings", 
+                                           title = "Relationship between Video Views and Earnings") +
+                      xlim(boxplot.stats(youtube[["video.views"]])$stats[1], boxplot.stats(youtube[["video.views"]])$stats[4]) +
+                      ylim(boxplot.stats(youtube[["highest_yearly_earnings"]])$stats[1], boxplot.stats(youtube[["highest_yearly_earnings"]])$stats[4])
+
+grid.arrange(
+  subscribers_plot + theme_minimal() + theme(legend.position = "none"),
+  video_views_plot + theme_minimal() + theme(legend.position = "none"),
+  ncol = 2
+)
+```
+
+# Data Cleaning
+
+## Dealing with NA values
+
+### Observations where video views or uploads are 0
+
+As seen from the summary of the data, there are channels with 0 uploads or video views. We are not interested in these channels as the data is likely to be incorrect given their popularity. Therefore, all observations with video views or uploads equal to 0 will be replaced with NaN.
+
+```{r}
+youtube <- youtube %>%
+  mutate(video.views = na_if(video.views, 0),
+         uploads = na_if(uploads, 0))
+```
+
+### Observation where created_year < 2005
+
+YouTube was founded in 2005, therefore any observation with a channel creation year prior to 2005 are errors and will be replaced with NaN to be counted as missing values.
+
+```{r}
+youtube <- youtube %>%
+  mutate(created_year = ifelse(created_year < 2005, NA, created_year))
+```
+
+### Observations with nan instead of NA
+
+Section ***insert here*** revealed several data points in where the missing data was indicated using `nan` instead of `NA` which is the proper value to represent missing data in R. We will convert all those values to `NaN` in order to have all missing values represented uniformly.
+
+```{r}
+youtube <- youtube %>%
+  mutate_all(~ ifelse(. %in% c("nan"), "NaN", .))
+```
+
+### Analyzing NA values
+
+The following is the count of NA values in each column of the data set.
+```{r}
+nacounts <- count_nan_values(youtube)
+hasNA = which(nacounts > 0)
+nacounts[hasNA]
+```
+### Listwise deletion
+
+The following shows the rows of data where `video.views` and `uploads` are missing data. It can be seen that the rows where these observations are missing are also missing most of the data regarding earnings and geographical data. Therefore, we consider these rows to be of low quality and they will be deleted from the data set. 
+
+```{r}
+result <- subset(youtube, is.na(uploads))
+nacounts <- count_nan_values(result)
+hasNA = which(nacounts > 0)
+nacounts[hasNA]
+```
+```{r}
+youtube <- youtube[!(is.na(youtube$video.views) | is.na(youtube$uploads)), ]
+```
+
+### Using vtreat to design a treatment plan
+
+Vtreat will be used to design a treatment plan for the remaining missing data.
+
+```{r}
+# Recount NA values
+nacounts <- count_nan_values(youtube)
+hasNA = which(nacounts > 0)
+
+# Design a treatment plan
+var_list <- names(nacounts)[hasNA]
+treatment_plan <- design_missingness_treatment(youtube, varlist=var_list)
+youtube_prepared <- prepare(treatment_plan, youtube)
+nacounts <- count_nan_values(youtube_prepared)
+sum(nacounts)
+```
+### Examining the treated data
+```{r}
+head(youtube_prepared)
+```
 
 
-## Multivariable Plots
+```
 
 
 ## Shiny App
@@ -299,6 +459,7 @@ categorical_columns <- sapply(youtube, function(col) !is.numeric(col))
 youtube_categorical <- youtube[, categorical_columns]
 numeric_columns <- sapply(youtube, is.numeric)
 youtube_numeric <- youtube[, numeric_columns]
+factor_col_names <- colnames(youtube_categorical)[-c(1, 3)]
 
 ui <- fluidPage(
   titlePanel("YouTube Data Visualization"),
@@ -318,7 +479,7 @@ ui <- fluidPage(
             condition = "input.plot_type_numeric == 'Histogram'",
             sliderInput("binwidth", "Binwidth:", min = 1, max = 100, value = 5)
           ),
-          checkboxInput("limit_range", "Limit to Q1-Q3 Range", value = FALSE),
+          checkboxInput("limit_range", "Limit to Q1-Q4 Range", value = FALSE),
           selectInput("second_plot_type_numeric", "Superimpose Second Plot:",
                       choices = c("None", "Boxplot", "Density Plot", "Histogram"))
         ),
@@ -337,8 +498,8 @@ ui <- fluidPage(
           condition = "output.multiVariable == 0",
           #GUIDE !
           selectInput("plot_type_multivariable_numeric", "Select plot type:", 
-            choices = c("Scatter", "geom_smooth", "Pairwise", "Overlay", "geom_bin2d", "geom_count")),
-          checkboxInput("limit_range_multivariable_numeric", "Limit to Q1-Q3 Range", value = FALSE),
+            choices = c("Scatter", "geom_smooth", "Pairwise", "Scatter + geom_smooth", "geom_bin2d", "geom_count")),
+          checkboxInput("limit_range_multivariable_numeric", "Limit to Q1-Q4 Range", value = FALSE),
           conditionalPanel(
             condition = "input.plot_type_multivariable_numeric == 'Pairwise'",
             pickerInput(
@@ -350,39 +511,34 @@ ui <- fluidPage(
             )
           ),
           conditionalPanel(
-            condition = "input.plot_type_multivariable_numeric == 'Scatter'|| input.plot_type == 'geom_smooth' || input.plot_type == 'Overlay' ||
-            input.plot_type == 'geom_bin2d' || input.plot_type == 'geom_count'",
-            conditionalPanel(
-              condition = "input.plot_type_multivariable_numeric == 'Scatter'",
-              selectInput(
-                inputId = "aes_attr_1",
-                label = "Select Aesthetic Type:",
-                choices = c("None", "Color", "Size"),
-              ),
-              conditionalPanel(
-                condition = "input.aes_attr_1 != 'None'",
-                selectInput("factor_attr_1", "Select factor attribute:", colnames(youtube_categorical))
-              )
+            condition = "input.plot_type_multivariable_numeric == 'Scatter'",
+            selectInput(
+              inputId = "aes_attr_1",
+              label = "Select Aesthetic Type:",
+              choices = c("None", "Color", "Size"),
             ),
             conditionalPanel(
-              condition = "input.plot_type_multivariable_numeric == 'geom_smooth'",
-              selectInput(
-                inputId = "aes_attr_2",
-                label = "Select Aesthetic Type:",
-                choices = c("None", "Color", "Line Type"),
-              ),
-              conditionalPanel(
-                condition = "input.aes_attr_2 != 'None'",
-                selectInput("factor_attr_2", "Select factor attribute:", colnames(youtube_categorical))
-              )
-            ),
-            conditionalPanel(
-              condition = "input.plot_type_multivariable_numeric == 'geom_count'",
-              sliderInput(inputId = "alpha_levels", label = "Alpha:",
-                  min = 0.05, max = 1, value = 0.25, step = 0.05)
+              condition = "input.aes_attr_1 != 'None'",
+              selectInput("factor_attr_1", "Select factor attribute:", factor_col_names)
             )
+          ),
+          conditionalPanel(
+            condition = "input.plot_type_multivariable_numeric == 'Scatter + geom_smooth'",
+            selectInput(
+              inputId = "aes_attr_2",
+              label = "Select Aesthetic Type:",
+              choices = c("None", "Color", "Size"),
+            ),
+            conditionalPanel(
+              condition = "input.aes_attr_2 != 'None'",
+              selectInput("factor_attr_2", "Select factor attribute:", factor_col_names)
+            )
+          ),
+          conditionalPanel(
+            condition = "input.plot_type_multivariable_numeric == 'geom_count'",
+            sliderInput(inputId = "alpha_levels", label = "Alpha:",
+                min = 0.05, max = 1, value = 0.25, step = 0.05)
           )
-          #GUIDE 2
         ),
         # 2 Categorical
         conditionalPanel(
@@ -393,7 +549,6 @@ ui <- fluidPage(
         # 1 Numeric 1 Categorical
         conditionalPanel(
           condition = "output.multiVariable == 2",
-          div("Three",style="color:red; height:400px")
         )
       )
     ),
@@ -539,23 +694,25 @@ server <- function(input, output, session) {
               }
               
             } else if(selected_plot == "geom_smooth") {
+              p <- p + geom_smooth()
+            } else if(selected_plot == "Scatter + geom_smooth") {
               aes_attr <- input$aes_attr_2
               factor_attr <- input$factor_attr_2
               if(aes_attr == "None"){
-                p <- p + geom_smooth()
+                p <- p + geom_point() + geom_smooth()
               }
               else if(aes_attr == "Color"){
-                p <- ggplot(youtube_numeric, mapping = aes_string(x = x_attr, y = y_attr, 
-                                                             color = factor(youtube[[factor_attr]]) )) + geom_smooth()
+                p <- ggplot(youtube_numeric, mapping = aes_string(x = x_attr, y = y_attr)) + 
+                      geom_point(mapping = aes_string(x = x_attr, y = y_attr, 
+                                                             color = factor(youtube[[factor_attr]]))) +
+                      geom_smooth()
               }
-              else if(aes_attr == "Line Type") {
-                p <- ggplot(youtube_numeric, mapping = aes_string(x = x_attr, y = y_attr, 
-                                                             linetype = factor(youtube[[factor_attr]]) )) + geom_smooth()
+              else if(aes_attr == "Size") {
+                p <- ggplot(youtube_numeric, mapping = aes_string(x = x_attr, y = y_attr)) + 
+                      geom_point(mapping = aes_string(x = x_attr, y = y_attr, 
+                                                             size = factor(youtube[[factor_attr]]))) +
+                      geom_smooth()
               }
-              
-            } else if(selected_plot == "Overlay") {
-              p <- p + geom_point() + geom_smooth()
-            
             } else if(selected_plot == "geom_bin2d") {
               p <- p + geom_hex()
               
