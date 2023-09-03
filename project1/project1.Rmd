@@ -1,17 +1,82 @@
 ---
 title: "CITS4009 - Project 1"
-author: "Joo Kai Tay (22489437)"
+author: "Joo Kai TAY (22489437)"
 date: "2023-08-07"
 output: 
   html_document:
     number_sections: true
 ---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
 # Introduction
 
 The data set analyzed can be obtained from the Kaggle platform. <https://www.kaggle.com/datasets/nelgiriyewithana/global-youtube-statistics-2023>
 
 This data set contains information about 995 of the most subscribed YouTube channels in the world. The data set includes variables such as subscriber count, video views, upload frequency, country of origin and earnings.
+
+## YouTube video for shiny app
+The YouTube video showing how I can use my shiny app can be found at the following link: https://www.youtube.com/watch?v=U9H958TrW5M 
+
+## Variable Description
+
+- **rank**: Position of the YouTube channel based on the number of subscribers
+
+- **Youtuber**: Name of the YouTube channel
+
+- **subscribers**: Number of subscribers to the channel
+
+- **video views**: Total views across all videos on the channel
+
+- **category**: Category or niche of the channel
+
+- **Title**: Title of the YouTube channel
+
+- **uploads**: Total number of videos uploaded on the channel
+
+- **Country**: Country where the YouTube channel originates
+
+- **Abbreviation**: Abbreviation of the country
+
+- **channel_type**: Type of the YouTube channel (e.g., individual, brand)
+
+- **video_views_rank**: Ranking of the channel based on total video views
+
+- **country_rank**: Ranking of the channel based on the number of subscribers within its country
+
+- **channel_type_rank**: Ranking of the channel based on its type (individual or brand)
+
+- **video_views_for_the_last_30_days**: Total video views in the last 30 days
+
+- **lowest_monthly_earnings**: Lowest estimated monthly earnings from the channel
+
+- **highest_monthly_earnings**: Highest estimated monthly earnings from the channel
+
+- **lowest_yearly_earnings**: Lowest estimated yearly earnings from the channel
+
+- **highest_yearly_earnings**: Highest estimated yearly earnings from the channel
+
+- **subscribers_for_last_30_days**: Number of new subscribers gained in the last 30 days
+
+- **created_year**: Year when the YouTube channel was created
+
+- **created_month**: Month when the YouTube channel was created
+
+- **created_date**: Exact date of the YouTube channel's creation
+
+- **Gross tertiary education enrollment (%)**: Percentage of the population enrolled in tertiary education in the country
+
+- **Population**: Total population of the country
+
+- **Unemployment rate**: Unemployment rate in the country
+
+- **Urban_population**: Percentage of the population living in urban areas
+
+- **Latitude**: Latitude coordinate of the country's location
+
+- **Longitude**: Longitude coordinate of the country's location
 
 # Data loading, overview and set up
 
@@ -22,10 +87,6 @@ library(ggplot2)
 library(gridExtra)
 library(dplyr)
 library(ggthemes)
-library(numform)
-library(treemapify)
-library(timeDate)
-library(lubridate)
 library(dplyr)
 library(reshape2)
 library(ca)
@@ -35,6 +96,7 @@ library(shinyWidgets)
 library(hexbin)
 library(tidyverse)
 library(ggrepel)
+library(vtreat)
 ```
 
 *Loading the data:*
@@ -50,7 +112,9 @@ youtube <- read.csv(path)
 str(youtube)
 ```
 
-There are 995 observations of 28 variables, composed of 17 numerical, 7 character and 4 integer variables. It is of note that there are a number of overlapping variables in this data set, namely "Youtuber" and "Title", "category" and "channel_type" and "Country" and "Abbreviation". These will be dealt with in \***insert here** section. There are also some NaN values already visible from this brief inspection of the data which will need to be dealt with before displaying the data.
+There are 995 observations of 28 variables, composed of 17 numerical, 7 character and 4 integer variables. It is of note that there are a number of overlapping variables in this data set, namely "Youtuber" and "Title", "category" and "channel_type" and "Country" and "Abbreviation". These variables will need to be inspected to find out if there are any notable differences between them. 
+
+The country rank variable also has a NaN value in it, we will need to explore the data to determine if this appears in any of the other geographical variables. 
 
 ## Analyzing the data using summary()
 
@@ -60,7 +124,14 @@ summary(youtube)
 
 The summary() function gives the statistics for each numeric column including minimum, maximum, 1st Quartile, 3rd Quartile, median and mean. From this information, we can identify some obvious problems with the data provided. For certain variables such as `video.views`, `uploads`, `video_views_for_the_last_30_days`, `lowest_monthly_earnings`, `highest_monthly_earnings`, `lowest_yearly_earnings`, `highest_yearly_earnings`have a minimum value of 0. The `video_views_for_the_last_30_days` could be explained by channels which are no longer active and the variables related to earnings could be due to channels that were never monetized. However, `video.views`and `uploads` present a problem. It is explicitly stated in the description of the data set that it relates to the top Youtube creators. Therefore, it is odd that a channel would have 0 videos uploaded and 0 views. This is a sign that the data collected about these channels is most likely erroneous.
 
-# Analyzing the data using head()
+The `created_year` variable has a minimum of 1970 which is likely to be erroneous as YouTube was created in 2005. The following code displays all values that are less than 2005:
+```{r}
+filtered_rows <- youtube[(!is.na(youtube$created_year) & youtube$created_year < 2005), ]
+filtered_rows
+```
+
+
+## Analyzing the data using head()
 
 ```{r}
 head(youtube)
@@ -68,95 +139,73 @@ head(youtube)
 
 Upon inspection of the first 6 rows of data, another issue stands out. For certain variables such as `category`, `country` and `Abbreviation`, `nan` is used to represent missing data. However, these values will not be picked up by the `is.na()` function that R offers, which only recognized `NaN` or `NA`. We will need to transform these values to get a full understanding of the missing values in the data set.
 
-# Data Cleaning and Transformation
+## NA Values in the dataset 
 
-## Data transformation
-
-### Creating a new_date_column
-
-The date of the creation of a YouTube channel is given in 3 separate variables, "created_year", "created_month" and "created_date". The following function connects them together in the format YYYY-MM-DD and adds a new column to the youtube data frame.
-
-```{r}
-youtube$new_date_column <- paste(youtube$created_year, match(youtube$created_month, month.abb), sprintf("%02f", youtube$created_date), sep = "-")
-```
-
-### Observations where video views or uploads are 0
-
-As seen from the summary of the data, there are channels with 0 uploads or video views. We are not interested in these channels as the data is likely to be incorrect given their popularity. Therefore, all observations with video views or uploads equal to 0 will be replaced with NaN.
-
-```{r}
-youtube <- youtube %>%
-  mutate(video.views = na_if(video.views, 0),
-         uploads = na_if(uploads, 0))
-```
-
-### Observation where created_year < 2005
-
-YouTube was founded in 2005, therefore any observation with a channel creation year prior to 2005 are errors and will be replaced with NaN to be counted as missing values.
-
-```{r}
-youtube <- youtube %>%
-  mutate(created_year = ifelse(created_year < 2005, NA, created_year))
-```
-
-### Observations with nan instead of NA
-
-Section ***insert here*** revealed several data points in where the missing data was indicated using `nan` instead of `NA` which is the proper value to represent missing data in R. We will convert all those values to `NaN` in order to have all missing values represented uniformly.
-
-```{r}
-youtube <- youtube %>%
-  mutate_all(~ ifelse(. %in% c("nan"), "NaN", .))
-```
-
-## Analyzing NA values
-
-The following is the count of NA values in each column of the data set.
+The following is the count of NA values in each column of the data set. The function has been modified to use both the in-built function `is.na()` as well as to account for any values which have the value `nan`.
 
 ```{r, echo=FALSE}
 count_nan_values <- function(dataframe) {
-  sapply(dataframe, function(col) sum(is.na(col)))
+  sapply(dataframe, function(col) sum(is.na(col) | col == "nan"))
 }
 nacounts <- count_nan_values(youtube)
 hasNA = which(nacounts > 0)
 nacounts[hasNA]
 ```
+### Geographical Variables
+From the previous table, it can be seen that there are 123 observations missing for each of the geographical variables. The same observations are all missing the geographical and demographic information. 
+```{r}
+summary(youtube[is.na(youtube$Population), c("Unemployment.rate", "Urban_population", "Latitude", "Longitude", "Gross.tertiary.education.enrollment....")])
+```
+## Unique values in categorical variables
+Upon examining the unique levels in the categorical variables, some questions arise:
 
-### Replacing missing values with the mean
+- There are 19 categories but 15 channel types, we will examine them to see the differences
 
-For values such as `video.views`, `uploads`, `video_views_for_the_last_30_days` and `subscribers_for_last_30_days`, the missing values are likely to be missing at random and this will be replaced with the mean value from the other data points available. As these variables are random, a missingess indicator would not be helpful to any predictive models and will not be added to the data set.
+- There are 995 Youtubers but only 992 unique channel titles
 
-youtube \<- youtube %\>% mutate(video.views = ifelse(is.na(video.views), mean(youtube$video.views, na.rm = TRUE), video.views),  uploads = ifelse(is.na(uploads), mean(youtube$uploads, na.rm = TRUE), uploads))
-
-### Missing geographical observations
-
-From the NA counts, it can be observed that `Gross.tertiary.education.enrollment`, `Population`, `Unemployment.rate`, `Urban_population`, `Latitude` and `Longitude` are missing from 122 observations. We can see that these are the same observations.
+- There are 13 unqique values in the `created_month` variable
 
 ```{r}
-summary(youtube[is.na(youtube$Population), c("Unemployment.rate", "Urban_population", "Latitude", "Longitude")])
+non_numeric_cols <- youtube %>%
+  select_if(~ !is.numeric(.)) %>%
+  colnames()
+
+unique_value_counts <- youtube %>%
+  select(all_of(non_numeric_cols)) %>%
+  summarise(across(everything(), ~ n_distinct(.)))
+
+unique_value_counts
 ```
 
-### Listwise deletion
+### Displaying the overlapping titles
 
-The following shows the rows of data where `video.views` and `uploads` are missing data. It can be seen that the rows where these observations are missing are also missing most of the data regarding earnings and geographical data. Therefore, we consider these rows to be of low quality and they will be deleted from the data set.
+It is observed that there are several YouTubers that have multiple channels with the same title. This explains the discrepancy between Youtubers and unique channel titles.
+
 
 ```{r}
-result <- subset(youtube, is.na(uploads))
-nacounts <- count_nan_values(result)
-hasNA = which(nacounts > 0)
-nacounts[hasNA]
+overlap_titles <- youtube %>%
+  group_by(Title) %>%
+  filter(n() >= 2) %>%
+  ungroup()
+
+overlap_titles
 ```
+
+
+### Displaying the unique values in months
+The 13th value that we saw in the created_months column turns out to be `nan` which was recognized as a unique value as it did not follow the R convention to use `NaN` or `NA`.
 ```{r}
-youtube <- youtube[!(is.na(youtube$video.views) | is.na(youtube$uploads)), ]
+unique_months <- unique(youtube$created_month)
+unique_months
 ```
 
 # Visualisation
 
-## Single Variable Plots
-
-The following chart shows the top 10 categories in Youtube by number of channels of the type. The remaining 8 categories have been condensed into the `other` category for display purposes. The full visualization of all category types can be found in the shiny app in section ***insert here***. The most popular categories are `Entertaintment` and `Music` which account for 25.16% and 21.43% of the channels respectively.
+## Channel counts by country
+The following chart shows the top 10 Countries in Youtube by number of channels. The United States had the most number of channels at 31.46%, followed by India at 16.88%. The `nan` values show up again with 12.26% of observation having a missing value in this category. 
 
 ```{r, echo=FALSE}
-category_counts <- table(youtube$category)
+category_counts <- table(youtube$Country)
 pie_data <- data.frame(
   category_counts
 )
@@ -178,7 +227,7 @@ pie_pos <- final_pie_data %>%
 
 
 
-ggplot(final_pie_data, aes(x = "" , y = Freq, fill = fct_inorder(Var1))) +
+ggplot(final_pie_data, aes(x = "" , y = Freq, fill = fct_inorder(Var1)), width = 12, height = 12) +
   geom_col(width = 1, color = 1) +
   coord_polar(theta = "y") +
   geom_label_repel(data = pie_pos,
@@ -188,39 +237,47 @@ ggplot(final_pie_data, aes(x = "" , y = Freq, fill = fct_inorder(Var1))) +
   theme_void()
 ```
 
-The following plot shows the top 10 countries by number of channels. **United States** has the highest number of channels in the dataset, followed by **India**. **Brazil**, **United Kingdom**, and **Russia** also have a significant number of channels.
-```{r, echo=FALSE}
-selected_variable <- "Country"
-num_levels_to_show <- 10  # Get the selected number of levels
-# Count the levels of the selected categorical variable
-counts <- youtube %>% 
-  count(.data[[selected_variable]])
-# Sort levels by counts in descending order
-sorted_levels <- counts %>% 
-  arrange(desc(n)) %>% 
-  pull(.data[[selected_variable]])
-# Reorder the factor levels based on sorted levels
-youtube[[selected_variable]] <- factor(
-  youtube[[selected_variable]],
-  levels = sorted_levels
-)
+Another way of displaying number of channels by country is show on the map below. Larger circles indicate the presence of more channels in the country. From this plot, we can see at least one instance of erroneous data where a channel is plotted in the middle of the ocean on the left of the map.
 
-# Subset data based on selected number of levels and create plot
-subset_data <- youtube %>%
-  filter(!is.na(.data[[selected_variable]])) %>%
-  filter(.data[[selected_variable]] %in% sorted_levels[1:num_levels_to_show])
+```{r, echo=FALSE, warning=FALSE, message=FALSE, error=FALSE}
+country_coords <- youtube %>%
+  filter(!is.na(Latitude) & !is.na(Longitude)) %>%
+  group_by(Latitude, Longitude) %>%
+  summarise(Count = n()) %>%
+  ungroup()
 
-ggplot(data = subset_data, aes(x = reorder(.data[[selected_variable]], desc(.data[[selected_variable]])), fill = .data[[selected_variable]])) +
-  geom_bar() +
-  coord_flip() +  
-  labs(title = paste("Top 10 Countries by Number of Channels"),
-       x = selected_variable,
-       y = "Count")+
-  scale_fill_viridis_d()
+ggplot(country_coords)+
+  geom_polygon(data=map_data("world"), aes(x = long, y = lat, group = group), fill="#F0F0F0", colour = "lightgray")+
+  geom_point(mapping = aes(x=Longitude, y=Latitude, size=Count), alpha=0.7, color='darkred')+
+  coord_quickmap()+
+  ggtitle("Location of Channels") + 
+  theme(panel.grid = element_blank(),
+      panel.border = element_blank(),
+      legend.position="top", legend.direction = 'horizontal',
+      axis.title.x=element_blank(),
+      axis.text.x=element_blank(),
+      axis.ticks.x=element_blank(),
+      axis.title.y=element_blank(),
+      axis.text.y=element_blank(),
+      axis.ticks.y=element_blank())
 ```
-The following graph shows the number of channels created each year from 2005 - 2023. When interpreting this data, it is important to remember that the dataset is of the 995 most subscribed channels on YouTube. Therefore, the steep decline in number of channels after the year 2014 does not represent that fewer channels are being created on YouTube. Instead, it means that channels that were created post 2014 have not had sufficient time to amass a large following of subscribers compared to channels that were created earlier. This is why there are fewer channels from2014 - 2023 represented in this dataset.
 
-```{r, echo=FALSE}
+## Category Analysis
+There are two variables used to represent type of channel in the YouTube data set, `channel_type` and `category`. The following filled bar chart shows how the two descriptors differ. 
+
+```{r, echo=FALSE, fig.height = 6}
+ggplot(youtube) + 
+geom_bar(aes(x=channel_type, fill = category), position="fill") +
+theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+labs(title="Filled bar chart of channel_type and category")
+```
+
+
+### Created Year
+
+The following graph shows the number of channels created each year from 2005 - 2023. When interpreting this data, it is important to remember that the dataset is of the 995 most subscribed channels on YouTube. Therefore, the steep decline in number of channels after the year 2014 does not represent that fewer channels are being created on YouTube. Instead, it means that channels that were created post 2014 have not had sufficient time to amass a large following of subscribers compared to channels that were created earlier. This is why there are fewer channels from 2014 - 2023 represented in this dataset.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, error=FALSE}
 # Counting the number of channels created each year
 yearly_counts <- table(youtube$created_year)
 
@@ -234,174 +291,269 @@ ggplot(data=as.data.frame(yearly_counts), aes(x=Var1, y=Freq)) +
         panel.grid.minor = element_blank())
 ```
 
-The following histogram shows the distribution of subscribers. There is an extreme tail to the right where there are outliers. 
-```{r, warning=FALSE, echo=FALSE}
-p1 <- ggplot(youtube, aes_string(x = youtube$subscribers)) +
-labs(title = "Number of Subscribers") +
-geom_histogram(binwidth = 1000, aes_string(x = youtube$subscribers), colour="black", fill="white") 
+Now that we have seen the general trend of channels created, let us explore it by category.The plot below shows the cumulative subscriber count for each category from 2005 - 2022. 
 
-p2 <- ggplot(youtube, aes_string(x = youtube$subscribers)) + geom_density(fill = "red", alpha = 0.2) + theme_void()
-p1 <- p1 + annotation_custom(ggplotGrob(p2), xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf)
-print(p1)
+```{r, echo=FALSE, warning=FALSE, message=FALSE, error=FALSE, fig.height = 6, fig.width = 10}
+# Create new date col
+month_numeric <- match(youtube$created_month, month.abb)
+youtube$date <- as.Date(paste(youtube$created_year, month_numeric, youtube$created_date, sep = "-"))
+
+youtube_category_by_month <- youtube[,c('date','channel_type','subscribers')] %>% 
+        group_by(year(date),channel_type) %>% 
+        summarise(subscribers_amount_sum = sum(subscribers, na.rm = T))
+                  
+colnames(youtube_category_by_month) <- c("year_date", "channel_type", "subscriber_amount_sum")
+youtube_category_by_month <- subset(youtube_category_by_month, year_date != 1970) #remove outlier affecting plot
+
+youtube_category_by_month <- youtube_category_by_month %>%
+  arrange(year_date) %>%
+  group_by(channel_type) %>%
+  mutate(cumulative_subscribers = cumsum(as.numeric(subscriber_amount_sum))) #deal with overflow
+
+ggplot(data = youtube_category_by_month, mapping = aes(x = year_date, y = cumulative_subscribers, color = channel_type)) +
+  geom_point() +
+  geom_line() +
+  ggtitle("Total subscriber count by year, split by channel_type") +
+  labs(
+    x = "Year",
+    y = "Subscribers"
+  )
+
 ```
 
-### Numerical Data
+Due to the large values in Entertainment and Music, the other channel types are not being displayed well. Facet wrap is used to display each category individually with it's own scale to allow easier visulization of trends over the years. Some trends can be observed:
 
-The following chart visualizes the numerical variables in the data set as a shiny application. There are options for three types of charts, box plots, histograms and density plots. Furthermore, as this data set contains a large number of outliers, we have the option to limit the viewing of the charts to the 4 quartiles to improve the viewing experience.
+- Comedy, Entertainment, News and Music have grown steadily year over year
 
-```{r, echo=FALSE}
+- Growth in Sports have plateaued following a sharp increase in 2010
+
+- Animals, Nonprofit and Autos are not very popular channel types, with no growth in recent years
+
+```{r, echo=FALSE, fig.height = 6, fig.width = 10}
+ggplot(data = youtube_category_by_month, mapping = aes(x = year_date, y = cumulative_subscribers, color = channel_type)) +
+  geom_point() +
+  geom_line() +
+  ggtitle("Subscriber count by year, split by channel_type") +
+  facet_wrap(~channel_type, scales = "free_y") +
+  labs(
+    x = "Year",
+    y = "Subscribers"
+  ) +
+  theme(legend.position = "none")
+```
+
+## Investigating Income 
+
+In this section, we investigate the vairables that influence the earning potential of YouTubers. The plot does not show any strong correlation between `subscribers` and `video.views` with `highest_yearly_earnings`. However, The presence of outliers greats limits the visualization of the data.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, error=FALSE, fig.height = 6, fig.width = 10}
+subscribers_plot <- ggplot(youtube, aes(x = youtube$subscribers, y = youtube$highest_yearly_earnings)) + 
+                      geom_point(mapping = aes_string(x = youtube$subscribers, y = youtube$highest_yearly_earnings, 
+                                                             color = factor(youtube[["channel_type"]]))) +
+                      geom_smooth() +
+                      labs(x = "Subscribers", y = "Highest Yearly Earnings", 
+                          title = "Relationship between Subscribers and Earnings") 
+
+video_views_plot <- ggplot(youtube, aes(x = youtube$video.views, y = youtube$highest_yearly_earnings)) + 
+                      geom_point(mapping = aes_string(x = youtube$video.views, y = youtube$highest_yearly_earnings, 
+                                                             color = factor(youtube[["channel_type"]]))) +
+                      geom_smooth()+
+                      labs(x = "Video Views", y = "Highest Yearly Earnings", 
+                                           title = "Relationship between Video Views and Earnings") 
+
+grid.arrange(
+  subscribers_plot + theme_minimal() + theme(legend.position = "none"),
+  video_views_plot + theme_minimal() + theme(legend.position = "none"),
+  ncol = 2
+)
+```
+
+Zooming into the data by limiting the X and Y axes to Q1-Q4, we still see no correlation between `subscribers` and `video.views` with `highest_yearly_earnings`. In fact, the points seem to be randomly distributed across the entire range. However, an interesting point to note is that in both plots, there is a large number of channels with 0 as their highest yearly income. This suggests that there are a significant number of YouTube channels that have not been monetized.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, error=FALSE, fig.height = 6, fig.width = 10}
+subscribers_plot <- ggplot(youtube, aes(x = youtube$subscribers, y = youtube$highest_yearly_earnings)) + 
+                      geom_point(mapping = aes_string(x = youtube$subscribers, y = youtube$highest_yearly_earnings, 
+                                                             color = factor(youtube[["channel_type"]]))) +
+                      geom_smooth() +
+                      labs(x = "Subscribers", y = "Highest Yearly Earnings", 
+                          title = "Relationship between Subscribers and Earnings") +
+                      xlim(boxplot.stats(youtube[["subscribers"]])$stats[1], boxplot.stats(youtube[["subscribers"]])$stats[4]) +
+                      ylim(boxplot.stats(youtube[["highest_yearly_earnings"]])$stats[1], boxplot.stats(youtube[["highest_yearly_earnings"]])$stats[4])
+
+video_views_plot <- ggplot(youtube, aes(x = youtube$video.views, y = youtube$highest_yearly_earnings)) + 
+                      geom_point(mapping = aes_string(x = youtube$video.views, y = youtube$highest_yearly_earnings, 
+                                                             color = factor(youtube[["channel_type"]]))) +
+                      geom_smooth()+
+                      labs(x = "Video Views", y = "Highest Yearly Earnings", 
+                                           title = "Relationship between Video Views and Earnings") +
+                      xlim(boxplot.stats(youtube[["video.views"]])$stats[1], boxplot.stats(youtube[["video.views"]])$stats[4]) +
+                      ylim(boxplot.stats(youtube[["highest_yearly_earnings"]])$stats[1], boxplot.stats(youtube[["highest_yearly_earnings"]])$stats[4])
+
+grid.arrange(
+  subscribers_plot + theme_minimal() + theme(legend.position = "none"),
+  video_views_plot + theme_minimal() + theme(legend.position = "none"),
+  ncol = 2
+)
+```
+
+# Data Cleaning
+
+Data cleaning and transformation will take place on a copy of the dataframe named `youtube_cleaned`
+
+```{r}
+youtube_cleaned <- youtube
+```
+
+
+## Dealing with NA values
+
+### Observations where video views or uploads are 0
+
+As seen from the summary of the data, there are channels with 0 uploads or video views. We are not interested in these channels as the data is likely to be incorrect given their popularity. Therefore, all observations with video views or uploads equal to 0 will be replaced with NaN.
+
+```{r}
+youtube_cleaned <- youtube_cleaned %>%
+  mutate(video.views = na_if(video.views, 0),
+         uploads = na_if(uploads, 0))
+```
+
+### Observation where created_year < 2005
+
+YouTube was founded in 2005, therefore any observation with a channel creation year prior to 2005 are errors and will be replaced with NaN to be counted as missing values.
+
+```{r}
+youtube_cleaned <- youtube_cleaned %>%
+  mutate(created_year = ifelse(created_year < 2005, NA, created_year))
+```
+
+### Observations with nan instead of NA
+
+Section 3.2 revealed several data points in where the missing data was indicated using `nan` instead of `NA` which is the proper value to represent missing data in R. We will convert all those values to `NaN` in order to have all missing values represented uniformly.
+
+```{r}
+youtube_cleaned <- youtube_cleaned %>%
+  mutate_all(~ ifelse(. %in% c("nan"), NA, .))
+```
+
+### Analyzing NA values
+
+The following is the count of NA values in each column of the data set.
+
+```{r}
+nacounts <- count_nan_values(youtube_cleaned)
+hasNA = which(nacounts > 0)
+nacounts[hasNA]
+```
+
+## Listwise deletion
+
+The following shows the rows of data where `video.views` and `uploads` are missing data. It can be seen that the rows where these observations are missing are also missing most of the data regarding earnings and geographical data. Therefore, we consider these rows to be of low quality and they will be deleted from the data set. 
+
+```{r}
+result <- subset(youtube_cleaned, is.na(uploads))
+nacounts <- count_nan_values(result)
+hasNA = which(nacounts > 0)
+nacounts[hasNA]
+```
+```{r}
+youtube_cleaned <- youtube_cleaned[!(is.na(youtube_cleaned$video.views) | is.na(youtube_cleaned$uploads)), ]
+```
+
+## Missingness Indicator
+
+For categorical variables, any values with NA or NaN will be converted to `missing`.
+
+```{r}
+youtube_cleaned <- youtube_cleaned %>%
+  mutate(category = ifelse(is.na(category), "missing", category),
+         Country = ifelse(is.na(Country), "missing", Country),
+         Abbreviation = ifelse(is.na(Abbreviation), "missing", Abbreviation),
+         channel_type = ifelse(is.na(channel_type), "missing", channel_type),
+         created_month = ifelse(is.na(created_month), "missing", created_month))
+```
+
+
+## Using vtreat to design a treatment plan for numeric variables
+
+Vtreat will be used to design a treatment plan for the remaining missing data.
+
+```{r}
+# Recount NA values
+nacounts <- count_nan_values(youtube_cleaned)
+hasNA = which(nacounts > 0)
+
+# Design a treatment plan
+var_list <- names(nacounts)[hasNA]
+treatment_plan <- design_missingness_treatment(youtube_cleaned, varlist=var_list)
+youtube_prepared <- prepare(treatment_plan, youtube_cleaned)
+nacounts <- count_nan_values(youtube_prepared)
+sum(nacounts)
+```
+### Examining the treated data
+
+Upon examining the `youtube_prepared` dataframe, it can be observed that the treatment plan has added `isBAD` columns adjacent to the variables that it has altered. This can be used when passing the data into a maching learning algorithm to let it know that certain data points have been modified. 
+
+```{r}
+head(youtube_prepared)
+```
+
+
+# Shiny App
+
+The YouTube video demonstrating the shiny app can be found at: https://www.youtube.com/watch?v=U9H958TrW5M
+
+```{r, echo=FALSE, fig.height = 10, fig.width = 10}
+# The YouTube video demonstrating the shiny app can be found at https://www.youtube.com/watch?v=U9H958TrW5M
+
+# Creating seperate dataframes for numeric and categorical data
+categorical_columns <- sapply(youtube, function(col) !is.numeric(col))
+youtube_categorical <- youtube[, categorical_columns]
 numeric_columns <- sapply(youtube, is.numeric)
 youtube_numeric <- youtube[, numeric_columns]
-# UI part of the Shiny app
+factor_col_names <- colnames(youtube_categorical)[-c(1, 3)]
+
 ui <- fluidPage(
   titlePanel("YouTube Data Visualization"),
   sidebarLayout(
     sidebarPanel(
-      selectInput("x_var", "Select X Variable:", choices = colnames(youtube_numeric)),
-      selectInput("plot_type", "Select Plot Type:",
-                  choices = c("Boxplot", "Density Plot", "Histogram")),
+      selectInput("x_var", "Select X Variable:", choices = colnames(youtube)),
+      selectInput("y_var", "Select Y Variable:", choices = c("None", colnames(youtube))),
+      # Single Variable Plots
       conditionalPanel(
-        condition = "input.plot_type == 'Histogram'",
-        sliderInput("binwidth", "Binwidth:", min = 1, max = 100, value = 5)
-      ),
-      checkboxInput("limit_range", "Limit to Q1-Q3 Range", value = FALSE),
-      selectInput("second_plot_type", "Superimpose Second Plot:",
-                  choices = c("None", "Boxplot", "Density Plot", "Histogram"))
-    ),
-    mainPanel(
-      plotOutput("plot")
-    )
-  )
-)
-
-# Server part of the Shiny app
-server <- function(input, output) {
-  output$plot <- renderPlot({
-    x_var <- input$x_var
-    plot_type <- input$plot_type
-    limit_range <- input$limit_range
-    binwidth <- input$binwidth
-    second_plot_type <- input$second_plot_type
-    
-    p <- ggplot(youtube_numeric, aes_string(x = x_var))
-    
-    if (limit_range) {
-      p <- p + xlim(boxplot.stats(youtube_numeric[[x_var]])$stats[1], boxplot.stats(youtube_numeric[[x_var]])$stats[4]) +
-        labs(title = paste(plot_type, " (Q1-Q3 Range)"))
-    } else {
-      p <- p + labs(title = plot_type)
-    }
-    p <- p + switch(plot_type,
-               "Boxplot" = geom_boxplot(),
-               "Density Plot" = geom_density(),
-               "Histogram" = geom_histogram(binwidth = binwidth, aes_string(x = x_var), colour="black", fill="white"))
-    
-    if (second_plot_type != "None" & limit_range) {
-      second_plot <- ggplot(youtube_numeric, aes_string(x = x_var))
-      second_plot <- second_plot +
-        switch(second_plot_type,
-               "Boxplot" = geom_boxplot(color = "red"),
-               "Density Plot" = geom_density(fill = "red", alpha = 0.2),
-               "Histogram" = geom_histogram(aes_string(x = x_var), binwidth = binwidth, fill = "red", alpha = 0.2)) +
-        theme_void() +  # Remove axis labels and ticks from the second plot 
-        xlim(boxplot.stats(youtube_numeric[[x_var]])$stats[1], boxplot.stats(youtube_numeric[[x_var]])$stats[4])
-      p <- p + annotation_custom(ggplotGrob(second_plot), xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf)
-    }
-    else {
-      second_plot <- ggplot(youtube_numeric, aes_string(x = x_var))
-      second_plot <- second_plot +
-        switch(second_plot_type,
-               "Boxplot" = geom_boxplot(color = "red"),
-               "Density Plot" = geom_density(fill = "red", alpha = 0.2),
-               "Histogram" = geom_histogram(aes_string(x = x_var), binwidth = binwidth, fill = "red", alpha = 0.2)) +
-        theme_void()  # Remove axis labels and ticks from the second plot 
-      p <- p + annotation_custom(ggplotGrob(second_plot), xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf)
-    }
-    
-    print(p)
-  })
-}
-
-# Run the Shiny app
-shinyApp(ui, server)
-```
-
-### Categorical Data
-
-```{r, echo=FALSE}
-categorical_columns <- sapply(youtube, function(col) !is.numeric(col))
-youtube_categorical <- youtube[, categorical_columns]
-
-ui <- fluidPage(
-  titlePanel("YouTube Categorical Data Analysis"),
-  sidebarLayout(
-    sidebarPanel(
-      selectInput(inputId = "variable", label = "Select a variable:", 
-                  choices = colnames(youtube_categorical)),
-      sliderInput(inputId = "num_levels", label = "Number of Levels to Show:",
-                  min = 10, max = 995, value = 10, step = 1)
-    ),
-    mainPanel(
-      plotOutput(outputId = "barplot")
-    )
-  )
-)
-
-# Define server
-server <- function(input, output) {
-  output$barplot <- renderPlot({
-    selected_variable <- input$variable
-    num_levels_to_show <- input$num_levels  # Get the selected number of levels
-    
-    # Count the levels of the selected categorical variable
-    counts <- youtube_categorical %>% 
-      count(.data[[selected_variable]])
-    
-    # Sort levels by counts in descending order
-    sorted_levels <- counts %>% 
-      arrange(desc(n)) %>% 
-      pull(.data[[selected_variable]])
-    
-    # Reorder the factor levels based on sorted levels
-    youtube_categorical[[selected_variable]] <- factor(
-      youtube_categorical[[selected_variable]],
-      levels = sorted_levels
-    )
-    
-    # Subset data based on selected number of levels and create plot
-    subset_data <- youtube_categorical %>%
-      filter(.data[[selected_variable]] %in% sorted_levels[1:num_levels_to_show])
-    
-    ggplot(data = subset_data, aes(x = reorder(.data[[selected_variable]], desc(.data[[selected_variable]])))) +
-      geom_bar() +
-      coord_flip() +  
-      labs(title = paste("Bar Chart of", selected_variable),
-           x = selected_variable,
-           y = "Count")
-  })
-}
-
-# Run the app
-shinyApp(ui = ui, server = server)
-```
-
-## Multi Variable Plots
-
-### Continuous Variables
-
-Test
-
-```{r, echo=FALSE}
-# Update the UI with the slider input
-ui <- fluidPage(
-  titlePanel("YouTube Numerical Multivariable Data Analysis"),
-  sidebarLayout(
-    sidebarPanel(
-          selectInput("plot_type", "Select plot type:", 
-                      choices = c("Pairwise", "Scatter", "geom_smooth", "Overlay", "geom_bin2d", "geom_count")),
-          checkboxInput("limit_range", "Limit to Q1-Q3 Range", value = FALSE),
+        condition = "input.y_var == 'None'",
+        # Numeric Plots
+        conditionalPanel(
+          condition = "output.isNumeric == true",
+          selectInput("plot_type_numeric", "Select Plot Type:",
+                            choices = c("Boxplot", "Density Plot", "Histogram")),
           conditionalPanel(
-            condition = "input.plot_type == 'Pairwise'",
+            condition = "input.plot_type_numeric == 'Histogram'",
+            sliderInput("binwidth", "Binwidth:", min = 1, max = 100, value = 5)
+          ),
+          checkboxInput("limit_range", "Limit to Q1-Q4 Range", value = FALSE),
+          selectInput("second_plot_type_numeric", "Superimpose Second Plot:",
+                      choices = c("None", "Boxplot", "Density Plot", "Histogram"))
+        ),
+        # Categorical Plots
+        conditionalPanel(
+          condition = "output.isNumeric == false",
+          selectInput("plot_type_categorical", "Select Plot Type:",
+                      choices = c("Bar Chart", "Pie Chart")),
+          sliderInput(inputId = "num_levels", label = "Number of Levels to Show:",
+                  min = 10, max = 995, value = 10, step = 1)
+        )
+      ),
+      # Multi-variable Plots
+      conditionalPanel(
+        condition = "input.y_var != 'None'",
+        # 2 Numeric
+        conditionalPanel(
+          condition = "output.multiVariable == 0",
+          selectInput("plot_type_multivariable_numeric", "Select plot type:", 
+            choices = c("Scatter", "geom_smooth", "Scatter + geom_smooth", "geom_bin2d", "geom_count", "Pairwise")),
+          checkboxInput("limit_range_multivariable_numeric", "Limit to Q1-Q4 Range", value = FALSE),
+          conditionalPanel(
+            condition = "input.plot_type_multivariable_numeric == 'Pairwise'",
             pickerInput(
               inputId = "selected_attributes",
               label = "Select attributes:",
@@ -411,201 +563,337 @@ ui <- fluidPage(
             )
           ),
           conditionalPanel(
-            condition = "input.plot_type == 'Scatter'|| input.plot_type == 'geom_smooth' || input.plot_type == 'Overlay' ||
-            input.plot_type == 'geom_bin2d' || input.plot_type == 'geom_count'",
-            selectInput("x_attr", "Select x-axis attribute:", colnames(youtube_numeric)),
-            selectInput("y_attr", "Select y-axis attribute:", colnames(youtube_numeric)),
-            conditionalPanel(
-              condition = "input.plot_type == 'Scatter'",
-              selectInput(
-                inputId = "aes_attr_1",
-                label = "Select Aesthetic Type:",
-                choices = c("None", "Color", "Size"),
-              ),
-              conditionalPanel(
-                condition = "input.aes_attr_1 != 'None'",
-                selectInput("factor_attr_1", "Select factor attribute:", colnames(youtube_categorical))
-              )
+            condition = "input.plot_type_multivariable_numeric == 'Scatter'",
+            selectInput(
+              inputId = "aes_attr_1",
+              label = "Select Aesthetic Type:",
+              choices = c("None", "Color", "Size"),
             ),
             conditionalPanel(
-              condition = "input.plot_type == 'geom_smooth'",
-              selectInput(
-                inputId = "aes_attr_2",
-                label = "Select Aesthetic Type:",
-                choices = c("None", "Color", "Line Type"),
-              ),
-              conditionalPanel(
-                condition = "input.aes_attr_2 != 'None'",
-                selectInput("factor_attr_2", "Select factor attribute:", colnames(youtube_categorical))
-              )
-            ),
-            conditionalPanel(
-              condition = "input.plot_type == 'geom_count'",
-              sliderInput(inputId = "alpha_levels", label = "Alpha:",
-                  min = 0.05, max = 1, value = 0.25, step = 0.05)
+              condition = "input.aes_attr_1 != 'None'",
+              selectInput("factor_attr_1", "Select factor attribute:", factor_col_names)
             )
+          ),
+          conditionalPanel(
+            condition = "input.plot_type_multivariable_numeric == 'Scatter + geom_smooth'",
+            selectInput(
+              inputId = "aes_attr_2",
+              label = "Select Aesthetic Type:",
+              choices = c("None", "Color", "Size"),
+            ),
+            conditionalPanel(
+              condition = "input.aes_attr_2 != 'None'",
+              selectInput("factor_attr_2", "Select factor attribute:", factor_col_names)
+            )
+          ),
+          conditionalPanel(
+            condition = "input.plot_type_multivariable_numeric == 'geom_count'",
+            sliderInput(inputId = "alpha_levels", label = "Alpha:",
+                min = 0.05, max = 1, value = 0.25, step = 0.05)
           )
+        ),
+        # 2 Categorical
+        conditionalPanel(
+          condition = "output.multiVariable == 1",
+          selectInput("plot_type_multivariable_categorical", "Select plot type:", 
+            choices = c("geom_count", "geom_tile", "Stacked bar chart", "Side-by-side bar chart", "Filled bar chart", "Overlaying bar chart"))
+        ),
+        # 1 Numeric 1 Categorical
+        conditionalPanel(
+          condition = "output.multiVariable == 2",
+        )
+      )
     ),
     mainPanel(
-          plotOutput("plot")
-        )
+      plotOutput("plot")
+    )
   )
 )
 
-# Define server
-server <- function(input, output) {
-  output$plot <- renderPlot({
-    selected_plot <- input$plot_type
-    limit_range <- input$limit_range
-    if(selected_plot == "Pairwise") {
-      selected_attrs <- input$selected_attributes
-      if (length(selected_attrs) < 2) {
-        return(NULL)
+server <- function(input, output, session) {
+  output$isNumeric <- reactive({
+    is.numeric(youtube[[input$x_var]])
+  })
+  outputOptions(output, 'isNumeric', suspendWhenHidden = FALSE)
+  
+  output$multiVariable <- reactive({
+    # Check is y var is empty
+    if (input$y_var != "None") {
+      if (is.numeric(youtube[[input$x_var]]) & is.numeric(youtube[[input$y_var]])) {
+        return(0)
       }
-      pairs(youtube_numeric[, selected_attrs])
-      
-    } else {
-        x_attr <- input$x_attr
-        y_attr <- input$y_attr
-        p <- ggplot(youtube_numeric, aes_string(x = x_attr, y = y_attr))
-        if(selected_plot == "Scatter") {
-          aes_attr <- input$aes_attr_1
-          factor_attr <- input$factor_attr_1
-          if(aes_attr == "None"){
-            p <- p + geom_point()
-          }
-          else if(aes_attr == "Color"){
-            p <- ggplot(youtube_numeric, mapping = aes_string(x = x_attr, y = y_attr, 
-                                                         color = factor(youtube[[factor_attr]]) )) + geom_point()
-          }
-          else if(aes_attr == "Size") {
-            p <- ggplot(youtube_numeric, mapping = aes_string(x = x_attr, y = y_attr, 
-                                                         size = factor(youtube[[factor_attr]]) )) + geom_point()
-          }
-          
-        } else if(selected_plot == "geom_smooth") {
-          aes_attr <- input$aes_attr_2
-          factor_attr <- input$factor_attr_2
-          if(aes_attr == "None"){
-            p <- p + geom_smooth()
-          }
-          else if(aes_attr == "Color"){
-            p <- ggplot(youtube_numeric, mapping = aes_string(x = x_attr, y = y_attr, 
-                                                         color = factor(youtube[[factor_attr]]) )) + geom_smooth()
-          }
-          else if(aes_attr == "Line Type") {
-            p <- ggplot(youtube_numeric, mapping = aes_string(x = x_attr, y = y_attr, 
-                                                         linetype = factor(youtube[[factor_attr]]) )) + geom_smooth()
-          }
-          
-        } else if(selected_plot == "Overlay") {
-          p <- p + geom_point() + geom_smooth()
+      else if (!is.numeric(youtube[[input$x_var]]) & !is.numeric(youtube[[input$y_var]])) {
+        return (1)
+      }
+      else if((!is.numeric(youtube[[input$x_var]]) & is.numeric(youtube[[input$y_var]])) | (is.numeric(youtube[[input$x_var]]) & !is.numeric(youtube[[input$y_var]]))) {
+        return(2)
+      }
+    }
+  })
+  outputOptions(output, 'multiVariable', suspendWhenHidden = FALSE)
+  
+  output$plot <- renderPlot({
+    x_var <- input$x_var
+    y_var <- input$y_var
+    
+    # Single Variable Plots
+    if(y_var == "None") {
+      # Numeric Plots
+      if(is.numeric(youtube[[x_var]])) {
+        plot_type_numeric <- input$plot_type_numeric
+        limit_range <- input$limit_range
+        binwidth <- input$binwidth
+        second_plot_type_numeric <- input$second_plot_type_numeric
         
-        } else if(selected_plot == "geom_bin2d") {
-          p <- p + geom_hex()
-          
-        } else if(selected_plot == "geom_count") {
-          alpha_attr <- input$alpha_levels
-          p <- ggplot(youtube_numeric) +
-            geom_count(mapping = aes_string(x = x_attr, y = y_attr, alpha = alpha_attr ))
+        p <- ggplot(youtube, aes_string(x = x_var))
+    
+        if (limit_range) {
+          p <- p + xlim(boxplot.stats(youtube[[x_var]])$stats[1], boxplot.stats(youtube[[x_var]])$stats[4]) +
+            labs(title = paste(plot_type_numeric, " (Q1-Q3 Range)"))
+        } else {
+          p <- p + labs(title = plot_type_numeric)
         }
-        if(limit_range){
-          p <- p + xlim(boxplot.stats(youtube_numeric[[x_attr]])$stats[1], boxplot.stats(youtube_numeric[[x_attr]])$stats[4]) +
-            ylim(boxplot.stats(youtube_numeric[[y_attr]])$stats[1], boxplot.stats(youtube_numeric[[y_attr]])$stats[4])
+        p <- p + switch(plot_type_numeric,
+                   "Boxplot" = geom_boxplot(),
+                   "Density Plot" = geom_density(),
+                   "Histogram" = geom_histogram(binwidth = binwidth, aes_string(x = x_var), colour="black", fill="white"))
+        
+        if (second_plot_type_numeric != "None" & limit_range) {
+          second_plot <- ggplot(youtube, aes_string(x = x_var))
+          second_plot <- second_plot +
+            switch(second_plot_type_numeric,
+                   "Boxplot" = geom_boxplot(color = "red"),
+                   "Density Plot" = geom_density(fill = "red", alpha = 0.2),
+                   "Histogram" = geom_histogram(aes_string(x = x_var), binwidth = binwidth, fill = "red", alpha = 0.2)) +
+            theme_void() +  # Remove axis labels and ticks from the second plot 
+            xlim(boxplot.stats(youtube[[x_var]])$stats[1], boxplot.stats(youtube[[x_var]])$stats[4])
+          p <- p + annotation_custom(ggplotGrob(second_plot), xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf)
+        }
+        else {
+          second_plot <- ggplot(youtube, aes_string(x = x_var))
+          second_plot <- second_plot +
+            switch(second_plot_type_numeric,
+                   "Boxplot" = geom_boxplot(color = "red"),
+                   "Density Plot" = geom_density(fill = "red", alpha = 0.2),
+                   "Histogram" = geom_histogram(aes_string(x = x_var), binwidth = binwidth, fill = "red", alpha = 0.2)) +
+            theme_void()  # Remove axis labels and ticks from the second plot 
+          p <- p + annotation_custom(ggplotGrob(second_plot), xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf)
+        }
+        
+        print(p)
+        
+      } else {
+        # Categorical Plots
+        selected_variable <- input$x_var
+        num_levels_to_show <- input$num_levels  
+        plot_type <- input$plot_type_categorical
+        
+        if(plot_type == "Bar Chart") {
+          # Count the levels of the selected categorical variable
+          counts <- youtube %>% 
+            count(.data[[selected_variable]])
+          
+          # Sort levels by counts in descending order
+          sorted_levels <- counts %>% 
+            arrange(desc(n)) %>% 
+            pull(.data[[selected_variable]])
+          
+          # Reorder the factor levels based on sorted levels
+          youtube[[selected_variable]] <- factor(
+            youtube[[selected_variable]],
+            levels = sorted_levels
+          )
+          
+          # Subset data based on selected number of levels and create plot
+          subset_data <- youtube %>%
+            filter(.data[[selected_variable]] %in% sorted_levels[1:num_levels_to_show])
+          
+          p <- ggplot(data = subset_data, aes(x = reorder(.data[[selected_variable]], desc(.data[[selected_variable]])))) +
+            geom_bar() +
+            coord_flip() +  
+            labs(title = paste("Bar Chart of", selected_variable),
+                 x = selected_variable,
+                 y = "Count")
+        } else {
+            counts_df <- table(youtube[[selected_variable]])
+            youtube_pie_data <- data.frame(
+              counts_df
+            )
+            
+            youtube_pie_data <- youtube_pie_data %>% arrange(desc(Freq))
+            top_x <- head(youtube_pie_data, num_levels_to_show)
+            pie_rest <- tail(youtube_pie_data, -num_levels_to_show)
+            pie_others <- data.frame(Var1 = "Others", Freq = sum(pie_rest$Freq))
+            final_youtube_pie_data <- rbind(top_x, pie_others)
+            total_sum <- sum(youtube_pie_data$Freq)
+            final_youtube_pie_data <- final_youtube_pie_data %>%
+              mutate(Percentage = round((Freq / total_sum) * 100, 2))
+            
+            # Get the positions
+            pie_pos <- final_youtube_pie_data %>% 
+              mutate(csum = rev(cumsum(rev(Freq))), 
+                     pos = Freq/2 + lead(csum, 1),
+                     pos = if_else(is.na(pos), Freq/2, pos))
+            
+            
+            
+            p <- ggplot(final_youtube_pie_data, aes(x = "" , y = Freq, fill = fct_inorder(Var1)), width = 12, height = 12) +
+              geom_col(width = 1, color = 1) +
+              coord_polar(theta = "y") +
+              geom_label_repel(data = pie_pos,
+                               aes(y = pos, label = paste0(Percentage, "%")),
+                               size = 4.5, nudge_x = 1, show.legend = FALSE) +
+              guides(fill = guide_legend(title = selected_variable)) +
+              theme_void() + 
+              labs(title=paste("Pie Chart of", selected_variable),
+                   )
         }
         print(p)
-    }
-    
-  })
-}
 
-# Run the app
-shinyApp(ui = ui, server = server)
-```
-
-### Bar Plots
-
-```{r, echo=FALSE}
-ui <- fluidPage(
-  titlePanel("YouTube Numerical Multivariable Data Analysis"),
-  sidebarLayout(
-    sidebarPanel(
-          selectInput("plot_type", "Select plot type:", 
-                      choices = c("Pairwise", "Scatter", "geom_smooth", "Overlay", "geom_bin2d", "geom_count")),
-    ),
-    mainPanel(
-          plotOutput("plot")
-        )
-  )
-)
-
-# Define server
-server <- function(input, output) {
-  output$plot <- renderPlot({
-    selected_plot <- input$plot_type
-    limit_range <- input$limit_range
-    if(selected_plot == "Pairwise") {
-      selected_attrs <- input$selected_attributes
-      if (length(selected_attrs) < 2) {
-        return(NULL)
       }
-      pairs(youtube_numeric[, selected_attrs])
       
     } else {
-        x_attr <- input$x_attr
-        y_attr <- input$y_attr
-        p <- ggplot(youtube_numeric, aes_string(x = x_attr, y = y_attr))
-        if(selected_plot == "Scatter") {
-          aes_attr <- input$aes_attr_1
-          factor_attr <- input$factor_attr_1
-          if(aes_attr == "None"){
-            p <- p + geom_point()
+      # Multivariable Plots
+      if (is.numeric(youtube[[input$x_var]]) & is.numeric(youtube[[input$y_var]])) {
+        selected_plot <- input$plot_type_multivariable_numeric
+        limit_range <- input$limit_range_multivariable_numeric
+        if(selected_plot == "Pairwise") {
+          selected_attrs <- input$selected_attributes
+          if (length(selected_attrs) < 2) {
+            return(NULL)
           }
-          else if(aes_attr == "Color"){
-            p <- ggplot(youtube_numeric, mapping = aes_string(x = x_attr, y = y_attr, 
-                                                         color = factor(youtube[[factor_attr]]) )) + geom_point()
-          }
-          else if(aes_attr == "Size") {
-            p <- ggplot(youtube_numeric, mapping = aes_string(x = x_attr, y = y_attr, 
-                                                         size = factor(youtube[[factor_attr]]) )) + geom_point()
-          }
+          pairs(youtube_numeric[, selected_attrs])
           
-        } else if(selected_plot == "geom_smooth") {
-          aes_attr <- input$aes_attr_2
-          factor_attr <- input$factor_attr_2
-          if(aes_attr == "None"){
-            p <- p + geom_smooth()
-          }
-          else if(aes_attr == "Color"){
-            p <- ggplot(youtube_numeric, mapping = aes_string(x = x_attr, y = y_attr, 
-                                                         color = factor(youtube[[factor_attr]]) )) + geom_smooth()
-          }
-          else if(aes_attr == "Line Type") {
-            p <- ggplot(youtube_numeric, mapping = aes_string(x = x_attr, y = y_attr, 
-                                                         linetype = factor(youtube[[factor_attr]]) )) + geom_smooth()
-          }
-          
-        } else if(selected_plot == "Overlay") {
-          p <- p + geom_point() + geom_smooth()
+        } else {
+            x_attr <- input$x_var
+            y_attr <- input$y_var
+            p <- ggplot(youtube_numeric, aes_string(x = x_attr, y = y_attr))
+            if(selected_plot == "Scatter") {
+              aes_attr <- input$aes_attr_1
+              factor_attr <- input$factor_attr_1
+              if(aes_attr == "None"){
+                p <- p + geom_point()
+              }
+              else if(aes_attr == "Color"){
+                p <- ggplot(youtube_numeric, mapping = aes_string(x = x_attr, y = y_attr, 
+                                                             color = factor(youtube[[factor_attr]]) )) + geom_point()
+              }
+              else if(aes_attr == "Size") {
+                p <- ggplot(youtube_numeric, mapping = aes_string(x = x_attr, y = y_attr, 
+                                                             size = factor(youtube[[factor_attr]]) )) + geom_point()
+              }
+              
+            } else if(selected_plot == "geom_smooth") {
+              p <- p + geom_smooth()
+            } else if(selected_plot == "Scatter + geom_smooth") {
+              aes_attr <- input$aes_attr_2
+              factor_attr <- input$factor_attr_2
+              if(aes_attr == "None"){
+                p <- p + geom_point() + geom_smooth()
+              }
+              else if(aes_attr == "Color"){
+                p <- ggplot(youtube_numeric, mapping = aes_string(x = x_attr, y = y_attr)) + 
+                      geom_point(mapping = aes_string(x = x_attr, y = y_attr, 
+                                                             color = factor(youtube[[factor_attr]]))) +
+                      geom_smooth()
+              }
+              else if(aes_attr == "Size") {
+                p <- ggplot(youtube_numeric, mapping = aes_string(x = x_attr, y = y_attr)) + 
+                      geom_point(mapping = aes_string(x = x_attr, y = y_attr, 
+                                                             size = factor(youtube[[factor_attr]]))) +
+                      geom_smooth()
+              }
+            } else if(selected_plot == "geom_bin2d") {
+              p <- p + geom_hex()
+              
+            } else if(selected_plot == "geom_count") {
+              alpha_attr <- input$alpha_levels
+              p <- ggplot(youtube_numeric) +
+                geom_count(mapping = aes_string(x = x_attr, y = y_attr, alpha = alpha_attr ))
+            }
+            if(limit_range){
+              p <- p + xlim(boxplot.stats(youtube_numeric[[x_attr]])$stats[1], boxplot.stats(youtube_numeric[[x_attr]])$stats[4]) +
+                ylim(boxplot.stats(youtube_numeric[[y_attr]])$stats[1], boxplot.stats(youtube_numeric[[y_attr]])$stats[4])
+            }
+            print(p)
+        }
+      }
+      # 2 Categorical variables
+      else if (!is.numeric(youtube[[input$x_var]]) & !is.numeric(youtube[[input$y_var]])) {
+        plot_type <- input$plot_type_multivariable_categorical
+        p <- ggplot(youtube)
+        if(plot_type == "geom_count") {
+          p <- p + geom_count(mapping=aes(x=youtube[[x_var]], y = youtube[[y_var]])) + 
+            labs(title = paste("Geom_Count of", youtube[[x_var]], "and", youtube[[y_var]]),
+               x = youtube[[x_var]],
+               y = youtube[[y_var]]) +
+            theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+            labs(title = paste("Geom_Count of", input$x_var, "and", input$y_var),
+                 x=input$x_var,
+                 y=input$y_var)
+        }
+        else if(plot_type == "geom_tile") {
+          counting <- count(youtube, youtube[[x_var]], youtube[[y_var]])
+          p <- ggplot(data=counting, mapping=aes(x=counting[, 1], y=counting[, 2])) +
+            geom_tile(aes(fill=n), color="white", lwd=1.5,linetype=1) + 
+            theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+            labs(title = paste("Geom_Tile of", input$x_var, "and", input$y_var), 
+                 x=input$x_var,
+                 y=input$y_var)
+        }
+        else {
+          p <- p + switch(plot_type,
+                          "Stacked bar chart" = geom_bar(aes(x=youtube[[x_var]], fill = youtube[[y_var]]), position="stack"),
+                          "Side-by-side bar chart" = geom_bar(aes(x=youtube[[x_var]], fill = youtube[[y_var]]), position="dodge"),
+                          "Filled bar chart" = geom_bar(aes(x=youtube[[x_var]], fill = youtube[[y_var]]), position="fill"),
+                          "Overlaying bar chart" = geom_bar(aes(x=youtube[[x_var]], fill = youtube[[y_var]]), position="identity")
+                          ) +
+            theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+            labs(title = paste("Bar Chart of", input$x_var, "and", input$y_var),
+                 x=input$x_var,
+                 fill=input$y_var)
+            
+        }
         
-        } else if(selected_plot == "geom_bin2d") {
-          p <- p + geom_hex()
-          
-        } else if(selected_plot == "geom_count") {
-          alpha_attr <- input$alpha_levels
-          p <- ggplot(youtube_numeric) +
-            geom_count(mapping = aes_string(x = x_attr, y = y_attr, alpha = alpha_attr ))
-        }
-        if(limit_range){
-          p <- p + xlim(boxplot.stats(youtube_numeric[[x_attr]])$stats[1], boxplot.stats(youtube_numeric[[x_attr]])$stats[4]) +
-            ylim(boxplot.stats(youtube_numeric[[y_attr]])$stats[1], boxplot.stats(youtube_numeric[[y_attr]])$stats[4])
-        }
         print(p)
+        
+      }
+      else if((!is.numeric(youtube[[input$x_var]]) & is.numeric(youtube[[input$y_var]])) | (is.numeric(youtube[[input$x_var]]) & !is.numeric(youtube[[input$y_var]]))) {
+        x_var_n <- ""
+        y_var_n <- ""
+        # Making sure that the variables are in the correct order
+        if(is.numeric(youtube[[input$x_var]])) {
+          x_var_n <- y_var
+          y_var_n <- x_var
+        }
+        else {
+          x_var_n <- x_var
+          y_var_n <- y_var
+        }
+        summary_df <- youtube %>%
+          group_by(.data[[x_var_n]]) %>%
+          summarise(total = sum(.data[[y_var_n]]))
+        
+        p <- bar_chart <- ggplot(summary_df, aes(x = .data[[x_var_n]], y = total)) +
+                            geom_bar(stat = "identity", fill = "#3498db") +
+                            xlab(x_var_n) +
+                            ylab(y_var_n) +
+                            theme_minimal() +
+                            theme(
+                              axis.text.x = element_text(angle = 45, hjust = 1),
+                              panel.grid.major.y = element_line(color = "#dcdcdc"),
+                              panel.grid.minor.y = element_blank(),
+                              axis.line = element_line(color = "#808080"),
+                              text = element_text(family = "Helvetica", color = "#333333")
+                            )
+        print(p)
+      }
     }
-    
+  
+  
   })
 }
-
-# Run the app
-shinyApp(ui = ui, server = server)
+shinyApp(ui = ui, server = server, options = list(height = 700))
 ```
+
+
