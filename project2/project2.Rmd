@@ -1,0 +1,86 @@
+---
+title: "CITS4009 - Project 2"
+author: "Joo Kai Tay (22489437)"
+date: "2023-09-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+- Introduce the youtube dataset and the features
+
+- Start by talking about some EDA stuff 
+  - Rip this off from Grace probs?
+  - Add graphs and talk about missing data and w/e
+  
+- Basic data cleaning
+  - Discard character string and categorical columns
+  - Convert the factors 
+  
+- Choose the response variable for the task
+  - Formulate it as a binary classification problem 
+  
+- Split the data into test and train set 
+  - Justify this so help me god 
+  
+- Implement decision tree classifier
+
+- Implement the following
+  - logistic regression
+  - naive bayes 
+  - KNN
+  - FIND THE MOST INTERESTING ONE AND DO SOMEHING WITH IT
+  - Attribute & feature selection 
+    - Do a load with this (like a lot, lots and lots)
+    - 3-4 attribute selection techniques 
+    - Mix and match 
+    - and compare the results of all the different types and make pretty graphs for it
+    - end myself
+  
+- Things to investigate :HMMM:
+  - Earnings
+  - Subscribers
+  - 
+
+# Introduction
+
+The 2023 Global YouTube Statistic dataset can be accessed from Kaggle from the link below:
+https://www.kaggle.com/datasets/nelgiriyewithana/global-youtube-statistics-2023
+
+This dataset contains various information about the top YouTube channels on the platform with the most subscribers. The data set contains information about their subscriber counts, video views, earnings and demographics.
+
+The modelling process explored to preduct **REPLACE ONCE WE KNOW WHAT TO PREDICT** is documented below in terms of code and comments. The plots 
+
+# Setup
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
