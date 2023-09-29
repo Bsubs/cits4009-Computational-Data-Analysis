@@ -14,6 +14,11 @@ knitr::opts_chunk$set(echo = TRUE)
 - Start by talking about some EDA stuff 
   - Rip this off from Grace probs?
   - Add graphs and talk about missing data and w/e
+  - Histograms
+  - Do log transforms of data
+  - Explore which variables need to be scaled 
+  - Binarize the target variable
+    - Try mean / median / other sensible values 
   
 - Basic data cleaning
   - Discard character string and categorical columns
@@ -24,7 +29,13 @@ knitr::opts_chunk$set(echo = TRUE)
   
 - Split the data into test and train set 
   - Justify this so help me god 
-  
+
+- Implement a NULL model
+
+- Implement a single-variable model 
+  - Try every single variable and pick out the best features
+  - Use this as a baseline to compare with the complex models
+
 - Implement decision tree classifier
 
 - Implement the following
@@ -53,20 +64,105 @@ This dataset contains various information about the top YouTube channels on the 
 
 The modelling process explored to preduct **REPLACE ONCE WE KNOW WHAT TO PREDICT** is documented below in terms of code and comments. The plots 
 
-# Setup
+# Data loading, and set up
 
+```{r, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(gridExtra)
+library(dplyr)
+library(knitr)
+library(tidyverse)
+library(ggrepel)
+library(vtreat)
+library(corrplot)
+```
 
+```{r}
+path <- './data/youtube_UTF_8.csv'
+youtube <- read.csv(path)
+```
 
+# Functions
 
+This section contains all function used in this modelling exercise. 
 
+```{r}
+# This function plots a correlation matrix for each numerical value in a given a dataframe
+# @param df dataframe to plot
+plot_corr <- function(df) {
+  numeric_df <- df[sapply(df, is.numeric)]
+  correlation_matrix <- cor(numeric_df)
+  corrplot(
+    correlation_matrix,
+    method = "color",
+    type = "upper",
+    tl.col = "black",
+    tl.srt = 45,
+    tl.cex = 0.8  # Adjust the font size (you can also specify the font family here)
+  )
+}
+```
 
+```{r}
+# This function plots a histogram for each numerical value in a given dataframe
+# @param df dataframe to plot
+# @param ncols number of columns in output plot
+plot_hist <- function(df, ncols){
+  
+  # Calculate the number of rows
+  nrows <- ceiling(length(names(df))/ncols)
+  par(mfrow=c(nrows,ncols), mar=c(2, 1, 1, 1))  
+  
+  # Loop through each column and plot the histogram
+  for(colname in names(df)) {
+    if(is.numeric(df[[colname]])) {
+      hist(df[[colname]], main=colname, xlab=NULL, col="lightblue", border="black", breaks=50)
+    }
+  }
+}
+```
 
+```{r}
+# This function performs a log transform of the data 
+# @param df the data to transform
+```
 
+```{r}
+# This function implements a NULL model for a given set of data 
+# @param features The feature columns
+# @param target The target variable
+```
 
+# Data Preparation
 
+```{r, results='hide'}
+str(youtube)
+```
+The Global YouTube Statistics 2023 data set contains 995 observations for 28 variables:
 
+- 4 Integer Variables: Integers represent whole numbers without decimal points
+- 7 Character Variables: Characters represent text or strings of characters
+- 17 Numeric Variables: Represent real numbers, including integers & numbers with decimal points
 
+## Unique Observations 
 
+```{r}
+unique_counts <- sapply(youtube, function(x) length(unique(x)))
+unique_counts_df <- data.frame(Column_Name = names(unique_counts), Unique_Count = unique_counts)
+print(unique_counts_df)
+```
+
+The code above counts the number of unique rows in each feature of the data set. It can be observed that the features `rank`, `Youtuber` and `Title` have unique values in each row. When a feature has a unique value for each row, it means there is no discernible pattern or variation in that feature. Machine learning models rely on patterns and relationships in the data to make predictions. Therefore, including features that cannot contribute to learning these patterns would just introduce noise into any model that we attempt to fit to them. For this reason, these features will be dropped from the data set. 
+
+```{r}
+youtube <- subset(youtube, select = -c(rank, Youtuber, Title))
+```
+
+## Data Correlation Matrix 
+
+```{r,fig.dim = c(15, 15)}
+plot_corr(youtube)
+```
 
 
 
