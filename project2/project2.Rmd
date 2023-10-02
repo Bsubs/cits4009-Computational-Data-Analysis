@@ -4,15 +4,19 @@ author: "Joo Kai Tay (22489437)"
 date: "2023-09-25"
 output: html_document
 ---
-
+```{css}
+img {
+  display: block;
+  margin-bottom: 0 !important;
+}
+```
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 ```
 
 - Introduce the youtube dataset and the features
 
 - Start by talking about some EDA stuff 
-  - Rip this off from Grace probs?
   - Add graphs and talk about missing data and w/e
   - Histograms
   - Do log transforms of data
@@ -28,7 +32,7 @@ knitr::opts_chunk$set(echo = TRUE)
   - Formulate it as a binary classification problem 
   
 - Split the data into test and train set 
-  - Justify this so help me god 
+  - Justify this
 
 - Implement a NULL model
 
@@ -50,7 +54,7 @@ knitr::opts_chunk$set(echo = TRUE)
     - and compare the results of all the different types and make pretty graphs for it
     - end myself
   
-- Things to investigate :HMMM:
+- Things to investigate
   - Earnings
   - Subscribers
   - 
@@ -75,6 +79,11 @@ library(tidyverse)
 library(ggrepel)
 library(vtreat)
 library(corrplot)
+library(tidyr)
+library(psych)
+library(GGally) 
+library(stringr)
+library(reshape2)
 ```
 
 ```{r}
@@ -90,16 +99,36 @@ This section contains all function used in this modelling exercise.
 # This function plots a correlation matrix for each numerical value in a given a dataframe
 # @param df dataframe to plot
 plot_corr <- function(df) {
-  numeric_df <- df[sapply(df, is.numeric)]
-  correlation_matrix <- cor(numeric_df)
-  corrplot(
-    correlation_matrix,
-    method = "color",
-    type = "upper",
-    tl.col = "black",
-    tl.srt = 45,
-    tl.cex = 0.8  # Adjust the font size (you can also specify the font family here)
-  )
+  youtube_numeric <- df[, sapply(df, is.numeric) | sapply(df, is.integer)]
+  
+  correlation_matrix <- cor(youtube_numeric, use = "complete.obs")
+  correlation_data <- melt(correlation_matrix)
+  diag(correlation_matrix) <- NA
+  
+  format_label <- function(x) {
+    ifelse(is.na(x), "", ifelse(abs(x) >= 0.6,sprintf("%.1f", x), ""))
+  }
+  
+  custom_color_gradient <- c('forestgreen', 'lightblue', 'darkblue')
+  
+  heatmap_plot <- ggplot(correlation_data, aes(Var1, Var2, fill = value)) +
+    geom_tile() +
+    geom_text(aes(label = format_label(value)), vjust = 0.5, hjust=0.5, size = 2, color='white') +  
+    scale_fill_gradientn(colors = custom_color_gradient, values = scales::rescale(c(-1, 0, 1)), guide = "legend") +  
+      labs(
+      title = "Correlation Matrix",
+      x = NULL,
+      y = NULL
+    ) +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      plot.title = element_text(hjust = 0.5))
+    
+  
+  print(heatmap_plot)
 }
 ```
 
@@ -107,24 +136,73 @@ plot_corr <- function(df) {
 # This function plots a histogram for each numerical value in a given dataframe
 # @param df dataframe to plot
 # @param ncols number of columns in output plot
-plot_hist <- function(df, ncols){
+# @param var.type which selection of variables to plot
+plot_hist <- function(df, ncols, var.type){
   
-  # Calculate the number of rows
-  nrows <- ceiling(length(names(df))/ncols)
-  par(mfrow=c(nrows,ncols), mar=c(2, 1, 1, 1))  
+  numeric_cols <- sapply(df, is.numeric)  
+  if(var.type == "log"){
+    total_numeric_cols <- sum(sapply(df, is.numeric) & grepl("\\.log$", names(df)))
+    nrows <- ceiling(total_numeric_cols/ncols) 
+    par(mfrow=c(nrows,ncols), mar=c(2, 2, 1, 1))  
+  } else if(var.type == "default") {
+    total_numeric_cols <- sum(numeric_cols) 
+    nrows <- ceiling(total_numeric_cols/ncols) 
+    par(mfrow=c(nrows,ncols), mar=c(2, 2, 1, 1))  
+  } else if(var.type == "minmax") {
+    total_numeric_cols <- sum(sapply(df, is.numeric) & grepl("\\.minmax$", names(df)))
+    nrows <- ceiling(total_numeric_cols/ncols) 
+    par(mfrow=c(nrows,ncols), mar=c(2, 2, 1, 1))  
+    par(mfrow=c(nrows,ncols), mar=c(2, 2, 1, 1))
+  } else if(var.type == "norm") {
+    total_numeric_cols <- sum(sapply(df, is.numeric) & grepl("\\.norm$", names(df)))
+    nrows <- ceiling(total_numeric_cols/ncols) 
+    par(mfrow=c(nrows,ncols), mar=c(2, 2, 1, 1))  
+  }
   
-  # Loop through each column and plot the histogram
-  for(colname in names(df)) {
-    if(is.numeric(df[[colname]])) {
+  
+  for(colname in names(df)[numeric_cols]) {
+    if(var.type == "log" & grepl("\\.log$", colname)) {
+      hist(df[[colname]], main=colname, xlab=NULL, col="lightblue", border="black", breaks=50)
+    } else if(var.type == "default") {
+      hist(df[[colname]], main=colname, xlab=NULL, col="lightblue", border="black", breaks=50)
+    } else if (var.type == "minmax" & grepl("\\.minmax$", colname)) {
+      hist(df[[colname]], main=colname, xlab=NULL, col="lightblue", border="black", breaks=50)
+    } else if(var.type == "norm" & grepl("\\.norm$", colname)) {
       hist(df[[colname]], main=colname, xlab=NULL, col="lightblue", border="black", breaks=50)
     }
   }
+  
+  # Reset the plotting parameters to default
+  par(mfrow=c(1, 1), mar=c(5, 4, 4, 2) + 0.1)
 }
+
 ```
 
 ```{r}
-# This function performs a log transform of the data 
-# @param df the data to transform
+minmax_scale <- function(x) {
+  return ((x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE)))
+}
+# This function transforms the data 
+# @param df the dataframe to transform
+# @param features the features to transform
+# @param trans the type of transform to apply
+transform_cols <- function(df, features, trans) {
+  if(trans == "log"){
+    # Uses log1p which computes log(1 + x) to avoid returning NaN on 0 or -ve values
+    df <- df %>%
+      mutate(across(all_of(features), log1p, .names = "{col}.log"))
+  } else if (trans == "minmax") {
+    # Applying min-max scaling
+    df <- df %>%
+      mutate(across(all_of(features), minmax_scale, .names = "{col}.minmax"))
+  } else if (trans == "norm") {
+    # Applying z-normalization
+    df <- df %>%
+      mutate(across(all_of(features), scale, .names = "{col}.norm"))
+  }
+  
+  return(df)
+}
 ```
 
 ```{r}
@@ -164,13 +242,104 @@ youtube <- subset(youtube, select = -c(rank, Youtuber, Title))
 plot_corr(youtube)
 ```
 
+When investigating if some features can be dropped due to a linear relationship, it is common to plot a scatter matrix that plots each feature against each other feature. However, in this dataset which contains 28 features, that would require 28^2 (784) plots. This is an unrealistic number to plot, display and sort through.
+
+Therefore, we can plot a correlation matrix. The correlation value between a pair of features measures the degree of the linear relationship that they have. If the two features have a high correlation score (approaching 1) it means that they are linear and measure the same variable. Having too many highly correlated variables may present problems in the following ways:
+
+- **Over fitting**: The model may make splits based on a small number of highly correlated features. This may cause over fitting problems.
+- **Redundancy**: As seen in section 1.2.1 removing highly correlated features only gives a small drop in accuracy while providing a significant increase in performance. This is because highly correlated features provide very little additional benefits in classification while adding unecessary complexity.
+- **Improved Model Performance**: In some cases, removing highly correlated features can actually improve the performance of the model. When features are highly correlated, they can lead to multicollinearity, which can make it difficult for the model to estimate the individual effects of each feature on the target variable.
+
+Examining the plot above, we can observe the following:
+
+- `Urban_population` is highly correlated with `Population`
+- `video_views_rank`, `country_rank` and `channel_type_rank` are highly correlated
+- `video.views` and `subscribers` are highly correlated
+
+We will drop `Urban_population`, `country_rank` and `channel_type_rank` from the data set.
+
+```{r}
+youtube <- subset(youtube, select=-c(`Urban_population`, `country_rank`, `channel_type_rank`))
+```
+
+## Histograms of numeric variables
+
+```{r, fig.dim = c(10, 10)}
+plot_hist(youtube, 3, "default")
+```
+
+The function above shows the plot of histograms for the remaining numeric variables in the data set. It can be observed that many of the features, including `subscribers`, `video.views`, `uploads`, `video_views_rank`, `video_views_for_the_last_30_days`, `lowest_monthly_earnings`, `highest_monthly_earnings`, `lowest_yearly_earnings`, `highest_yearly earnings` and `subscribers_for_last_30_days` are right skewed. This means that the majority of the data points are concentrated on the left side of the distribution, with the tail extending to the right. In such cases, the mean is typically greater than the median, and extreme values can be substantially higher than the rest of the data points.    
+
+Having a right skew can impact model performance as many machine learning models assume that the features have a normal (Gaussian) distribution. When the features are skewed, it can lead to sub optimal performance as the models are less capable of capturing the underlying patterns in the skewed data.
+
+We will investigate several transformations of these variables to determine which is the best option for our data. We will apply a log transform, min-max scaling and z-normalization to the following columns:
+
+```{r}
+cols_to_transform <- c(
+  "subscribers", "video.views", "uploads", "video_views_rank", 
+  "video_views_for_the_last_30_days", "lowest_monthly_earnings", 
+  "highest_monthly_earnings", "lowest_yearly_earnings", 
+  "highest_yearly_earnings", "subscribers_for_last_30_days"
+)
+```
+
+
+### Log transform
+
+```{r, fig.width=10, fig.height=7}
+youtube <- transform_cols(youtube, cols_to_transform,"log")
+
+plot_hist(youtube, 3, "log")
+```
+
+### Min-Max scaling
+
+```{r, fig.width=10, fig.height=7}
+youtube <- transform_cols(youtube, cols_to_transform,"minmax")
+plot_hist(youtube, 3, "minmax")
+```
+
+### Z-score normalization
+
+```{r, fig.width=10, fig.height=7}
+youtube <- transform_cols(youtube, cols_to_transform,"norm")
+plot_hist(youtube, 3, "norm")
+```
+
+
+# Target Variable Selection 
+
+Given the nature of the YouTube data set, we will choose earnings as the target variable to determine the success or failure of a YouTube channel. To facilitate the classification, we will formulate it as a binary classification problem (high-earning/low-earning) as multiclass classification is very difficult. 
+
+```{r, fig.width=10, fig.height=4}
+earnings_subset <- youtube[, c("lowest_monthly_earnings", 
+  "highest_monthly_earnings", "lowest_yearly_earnings", 
+  "highest_yearly_earnings")]
+
+ggpairs(earnings_subset) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 10), 
+        axis.text.y = element_text(size = 10))
+```
+
+The pairplot above shows the 4 different features that track the earnings of each YouTube channel. It can be observed that there ia a perfect positive linear relationship in each case and they all have a correlation of 1. It's worth noting that in real-world scenarios, having a correlation of exactly 1 between different variables is very rare, unless there is some deterministic relationship between them or they are different representations of the same underlying data.
+
+We will take an average of the highest and lowest yearly earnings to form a new feature that we will use as our target variable.
+
+```{r, fig.width=10, fig.height=4}
+youtube <- youtube %>%
+  mutate(average_yearly_earnings = (lowest_yearly_earnings + highest_yearly_earnings) / 2)
+
+youtube <- transform_cols(youtube, "average_yearly_earnings", "log")
+
+par(mfrow = c(1, 2))
+hist(youtube$average_yearly_earnings, main = "Average Yearly Earnings", xlab = "Earnings", col = "lightblue", border = "black", breaks=50)
+hist(youtube$average_yearly_earnings.log, main = "Log of Average Yearly Earnings", xlab = "Log(Earnings)", col = "lightgreen", border = "black", breaks=50)
+par(mfrow = c(1, 1))
+```
 
 
 
-
-
-
-
+As the earnings is presented as a continuous variable, we will need to find a threshold to determine what is considered high and low earning. Consider the plot of the histograms below:
 
 
 
