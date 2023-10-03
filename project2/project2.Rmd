@@ -179,6 +179,31 @@ plot_hist <- function(df, ncols, var.type){
 ```
 
 ```{r}
+plot_individual_hist <- function(df, feature, title1, plot.mean) {
+  mean_val <- mean(df[,feature], na.rm = TRUE)
+  median_val <- median(df[,feature], na.rm = TRUE)
+  
+  p <- ggplot(df, aes(x = df[,feature])) +
+  geom_histogram(fill = "lightgreen", alpha = 0.7, color="black") +
+  labs(title=title1) +
+  xlab(feature) +
+  ylab("Frequency") +
+  theme_minimal()
+  
+  if(plot.mean) {
+    p <- p +
+      geom_vline(aes(xintercept = mean_val), color = "red", linetype = "dashed", size = 1) +
+      geom_vline(aes(xintercept = median_val), color = "blue", linetype = "dashed", size = 1) +
+      annotate("text", x = mean_val, y = Inf, label = sprintf("Mean = %.2f", mean_val), vjust = 2, hjust = 1.1, color = "red", size = 3.5) +
+      annotate("text", x = median_val, y = Inf, label = sprintf("Median = %.2f", median_val), vjust = 2, hjust = -0.1, color = "blue", size = 3.5) 
+  }
+  
+  return(p)
+}
+```
+
+
+```{r}
 minmax_scale <- function(x) {
   return ((x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE)))
 }
@@ -323,7 +348,11 @@ ggpairs(earnings_subset) +
 
 The pairplot above shows the 4 different features that track the earnings of each YouTube channel. It can be observed that there ia a perfect positive linear relationship in each case and they all have a correlation of 1. It's worth noting that in real-world scenarios, having a correlation of exactly 1 between different variables is very rare, unless there is some deterministic relationship between them or they are different representations of the same underlying data.
 
-We will take an average of the highest and lowest yearly earnings to form a new feature that we will use as our target variable.
+We will take an average of the highest and lowest yearly earnings to form a new feature that we will use as our target variable. There are several reasons to use the average of the highest and lowest yearly earnings:
+
+- Predicting the highest earnings may lead to over-optimistic predictions, influenced by extreme values or outliers. An average helps in reducing the influence of such extreme values.
+- High earnings may have high variability, and focusing solely on them may lead to instability in predictions. Averaging helps in mitigating this variability.
+- A model trained to predict average earnings tends to be more robust, as it learns the broader patterns in the data.
 
 ```{r, fig.width=10, fig.height=4}
 youtube <- youtube %>%
@@ -331,18 +360,30 @@ youtube <- youtube %>%
 
 youtube <- transform_cols(youtube, "average_yearly_earnings", "log")
 
-par(mfrow = c(1, 2))
-hist(youtube$average_yearly_earnings, main = "Average Yearly Earnings", xlab = "Earnings", col = "lightblue", border = "black", breaks=50)
-hist(youtube$average_yearly_earnings.log, main = "Log of Average Yearly Earnings", xlab = "Log(Earnings)", col = "lightgreen", border = "black", breaks=50)
-par(mfrow = c(1, 1))
+p1 <- plot_individual_hist(youtube, "average_yearly_earnings", "Average Yearly Earnings", TRUE)
+p2 <- plot_individual_hist(youtube, "average_yearly_earnings.log", "Log of Average Yearly Earnings", TRUE)
+
+grid.arrange(p1,p2, ncol=2)
 ```
 
 
+The histogram on the left shows the average yearly earnings target variable that was just created. Like many of the other features in this data set, it is right skewed. Therefore, we will perform a log transform on it to help normalize the distribution of the target variable. 
 
-As the earnings is presented as a continuous variable, we will need to find a threshold to determine what is considered high and low earning. Consider the plot of the histograms below:
+As the earnings is presented as a continuous variable, we will need to find a threshold to determine what is considered high and low earning in order to formulate this as a binary classification problem. We will examine using the mean and median as the initial threshold, and other methods will be used as we proceed in the analysis of the models.
 
+# Null Model
 
+- Week 8 lecture
+- Week 9 lecture
 
+# Single-Variable Models
+
+- Week 9 lecture (use AUC to find best performing variables)
+- Week 10 lab
+
+# Multi-Variable Models
+
+- copy from machine learning
 
 
 
