@@ -84,6 +84,8 @@ library(psych)
 library(GGally) 
 library(stringr)
 library(reshape2)
+library(caret)
+library(ROCR)
 ```
 
 ```{r}
@@ -287,6 +289,54 @@ We will drop `Urban_population`, `country_rank` and `channel_type_rank` from the
 youtube <- subset(youtube, select=-c(`Urban_population`, `country_rank`, `channel_type_rank`))
 ```
 
+## Data Cleaning
+
+The following steps were discussed in project 1 in relation to the data cleaning and will be repeated here:
+
+There are channels with 0 uploads or video views. We are not interested in these channels as the data is likely to be incorrect given their popularity. Therefore, all observations with video views or uploads equal to 0 will be replaced with NaN.
+
+```{r}
+youtube <- youtube %>%
+  mutate(video.views = na_if(video.views, 0),
+         uploads = na_if(uploads, 0))
+```
+
+YouTube was founded in 2005, therefore any observation with a channel creation year prior to 2005 are errors and will be replaced with NaN to be counted as missing values.
+
+```{r}
+youtube <- youtube %>%
+  mutate(created_year = ifelse(created_year < 2005, NA, created_year))
+```
+
+Data points in which the missing data was indicated using `nan` instead of `NA` which is the proper value to represent missing data in R. We will convert all those values to `NaN` in order to have all missing values represented uniformly.
+
+```{r}
+youtube <- youtube %>%
+  mutate_all(~ ifelse(. %in% c("nan"), NA, .))
+```
+
+The rows where `video.views` and `uploads` are missing are also missing most of the data regarding earnings and geographical data. Therefore, we consider these rows to be of low quality and they will be deleted from the data set. 
+
+```{r}
+youtube <- youtube[!(is.na(youtube$video.views) | is.na(youtube$uploads)), ]
+```
+
+For categorical variables, any values with NA or NaN will be converted to `missing`.
+
+```{r}
+youtube <- youtube %>%
+  mutate(category = ifelse(is.na(category), "missing", category),
+         Country = ifelse(is.na(Country), "missing", Country),
+         Abbreviation = ifelse(is.na(Abbreviation), "missing", Abbreviation),
+         channel_type = ifelse(is.na(channel_type), "missing", channel_type),
+         created_month = ifelse(is.na(created_month), "missing", created_month))
+```
+
+The following columns contain duplicate information and will be removed:
+```{r}
+youtube <- subset(youtube, select = -c(category, Abbreviation))
+```
+
 ## Histograms of numeric variables
 
 ```{r, fig.dim = c(10, 10)}
@@ -312,7 +362,7 @@ cols_to_transform <- c(
 ### Log transform
 
 ```{r, fig.width=10, fig.height=7}
-youtube <- transform_cols(youtube, cols_to_transform,"log")
+youtube <- transform_cols(youtube, colnames(youtube)[sapply(youtube, is.numeric)],"log")
 
 plot_hist(youtube, 3, "log")
 ```
@@ -324,6 +374,8 @@ youtube <- transform_cols(youtube, cols_to_transform,"minmax")
 plot_hist(youtube, 3, "minmax")
 ```
 
+The min-max scaler transforms the data to be within a given range which is very useful when dealing with data that has vastly different scales like the YouTube data set. In this case, the range chosen was [0,1]. However, just like z-normalization, min-max scaling is highly sensitive to outliers. Given the highly skewed distribution with a very long tail, min-max scaling will compress the majority of the scaled data into a small interval.
+
 ### Z-score normalization
 
 ```{r, fig.width=10, fig.height=7}
@@ -331,6 +383,7 @@ youtube <- transform_cols(youtube, cols_to_transform,"norm")
 plot_hist(youtube, 3, "norm")
 ```
 
+Z-normalization involves scaling the features such that they have a mean of zero and a standard deviation of one. However, as shown in the plots above Z-normalization is not very useful for the YouTube data set. This is because Z-normalization is sensitive to outliers. Given that many of the features are heavily skewed with extreme values, the mean and standard deviation can be disproportionately affected. Standardizing in this context may not provide the intended scaling for the majority of the data points. Therefore, using Z-normalization does not address the issue of the skewed data that we are trying to rectify. 
 
 # Target Variable Selection 
 
@@ -369,17 +422,229 @@ grid.arrange(p1,p2, ncol=2)
 
 The histogram on the left shows the average yearly earnings target variable that was just created. Like many of the other features in this data set, it is right skewed. Therefore, we will perform a log transform on it to help normalize the distribution of the target variable. 
 
-As the earnings is presented as a continuous variable, we will need to find a threshold to determine what is considered high and low earning in order to formulate this as a binary classification problem. We will examine using the mean and median as the initial threshold, and other methods will be used as we proceed in the analysis of the models.
+As the earnings is presented as a continuous variable, we will need to find a threshold to determine what is considered high and low earning in order to formulate this as a binary classification problem. We will examine using the mean and median as the initial threshold.
 
-# Null Model
 
-- Week 8 lecture
-- Week 9 lecture
+```{r}
+youtube$average_yearly_earnings.binary <- ifelse(youtube$average_yearly_earnings.log > 12.15, 1, 0)
+table(youtube$average_yearly_earnings.binary)
+```
+```{r}
+youtube$average_yearly_earnings.binary <- ifelse(youtube$average_yearly_earnings.log > 14.14, 1, 0)
+table(youtube$average_yearly_earnings.binary)
+```
+
+The code above shows the number of each class in the newly created binary target variable when using the mean and median as the splitting threshold respectively. We can see that using the median produces a much better balance between the positive and negative classes this is important as the balance between positive and negative classes in the target variable can significantly impact the performance and interpretation of a machine learning model. When there's a strong class imbalance, the majority class can dominate the minority class, leading to poor predictive performance for the minority class. A model may achieve high overall accuracy simply by predicting the majority class all the time, but it's likely that the recall or precision for the minority class will be very low.
+
+Therefore, going forward we will use the median to split the target variable for the binary classification tasks in the remainder of this notebook.
+
+```{r}
+outcome <- "average_yearly_earnings.binary"
+pos <- 1
+```
+
+
+# Splitting the data
+
+We will use a 90/10 split for the data. Given that the data set is relatively small (1000 obvs), we allocate a larger proportion for training to ensure that the model has enough data to learn for. 
+
+```{r}
+# This function splits a dataframe into training and test sets given a particular ratio
+# @param df the dataframe to operate on
+# @param feature the feature to use as the vector of outcomes
+# @param train_ratio the split to use
+split_data <- function(df, feature, train_ratio = 0.9) {
+  train_indices <- createDataPartition(df[,feature],  p= train_ratio, list = FALSE)
+  
+  # Split the data into training and test sets
+  train_set <- df[train_indices, ]
+  test_set <- df[-train_indices, ]
+  
+  # Return a list containing the training and test sets
+  list(train = train_set, test = test_set)
+}
+
+
+```
+```{r}
+# Retain only the log transformed variables
+youtube_cleaned <- youtube[, grepl("\\.log$", names(youtube))]
+youtube_cleaned <- bind_cols(youtube_cleaned, youtube[, c("average_yearly_earnings.binary", "Country", "channel_type", "created_month")])
+
+splits <- split_data(youtube_cleaned, "average_yearly_earnings.binary", train_ratio = 0.9)
+train_data <- splits$train
+test_data <- splits$test
+
+useForCal <- rbinom(n=dim(train_data)[[1]], size=1, prob=0.1) > 0
+cal_data <- subset(train_data, useForCal)
+train_data <- subset(train_data,!useForCal)
+```
+
+Split the data into categorical and numerical variables:
+
+```{r}
+# This function seperates a dataframe into categorical and numeric variables
+# @param df the dataframe to operate on
+separate_vars <- function(df) {
+  numeric_var_names <- names(df)[sapply(df, is.numeric)]
+  factor_var_names <- names(df)[sapply(df, is.character)]
+
+  numVars <- df %>%
+    select(all_of(numeric_var_names))
+
+  catVars <- df %>%
+    select(all_of(factor_var_names))
+  
+  return(list(numVars = numVars, catVars = catVars))
+}
+
+```
+
+```{r}
+sep_train <- separate_vars(train_data)
+numVars <- sep_train$numVars
+catVars <- sep_train$catVars
+```
+
 
 # Single-Variable Models
 
-- Week 9 lecture (use AUC to find best performing variables)
-- Week 10 lab
+The following function is used to process the categorical variables and perform single variable prediction for a given categorical column.
+
+```{r}
+mkPredC <- function(outCol, varCol, appCol) {
+  pPos <- sum(outCol==pos)/length(outCol)
+  naTab <- table(as.factor(outCol[is.na(varCol)]))
+  pPosWna <- (naTab/sum(naTab))[pos]
+  vTab <- table(as.factor(outCol), varCol)
+  pPosWv <- (vTab[pos,]+1.0e-3*pPos)/(colSums(vTab)+1.0e-3)
+  pred <- pPosWv[appCol]
+  pred[is.na(appCol)] <- pPosWna
+  pred[is.na(pred)] <- pPos
+  pred
+}
+
+for (v in colnames(catVars)) {
+  pi <- paste('pred', v, sep='')
+  train_data[,pi] <- mkPredC(train_data[,outcome], train_data[,v], train_data[,v])
+  cal_data[,pi] <- mkPredC(cal_data[,outcome], cal_data[,v], cal_data[,v])
+  test_data[,pi] <- mkPredC(test_data[,outcome], test_data[,v], test_data[,v])
+}
+```
+
+The following function is used to process the numeric variables and perform single variable prediction for a given numeric column.
+
+```{r}
+# for numerical variables, we convert them into categorical one and
+# call the `mkPredC` function above.
+mkPredN <- function(outCol, varCol, appCol) {
+  cuts <- unique(as.numeric(
+    quantile(varCol, probs=seq(0, 1, 0.1), na.rm=T)))
+  varC <- cut(varCol, cuts)
+  appC <- cut(appCol, cuts)
+  mkPredC(outCol, varC, appC)
+}
+
+# now go through all the numerical variables in the `numericVars` vector
+# and perform the predictions. Again, the outputs are stored back into
+# the data frame.
+for (v in colnames(numVars)) {
+  pi <- paste('pred', v, sep='')
+  train_data[,pi] <- mkPredN(train_data[,outcome], train_data[,v], train_data[,v])
+  test_data[,pi] <- mkPredN(test_data[,outcome], test_data[,v], test_data[,v])
+  cal_data[,pi] <- mkPredN(cal_data[,outcome], cal_data[,v], cal_data[,v])
+}
+```
+
+## Evaulating Single Variable Models using AUC
+
+```{r}
+calcAUC <- function(predcol, outcol) {
+  perf <- performance(prediction(predcol, outcol==pos),'auc')
+  as.numeric(perf@y.values)
+}
+```
+
+```{r, message=TRUE}
+for(v in colnames(catVars)) {
+  pii <- paste('pred',v,sep='')
+  aucTrain <- calcAUC(train_data[,pii],train_data[,outcome])
+
+  aucCal <- calcAUC(cal_data[,pii],cal_data[,outcome])
+  print(sprintf(
+    "%s, trainAUC: %4.3f calibrationAUC: %4.3f",
+    pii, aucTrain, aucCal))
+  
+}
+```
+```{r}
+for(v in colnames(numVars)) {
+  pii<-paste('pred',v,sep='')
+  aucTrain <- calcAUC(train_data[,pii],train_data[,outcome])
+  
+  if(aucTrain>=0.3) {
+    aucCal<-calcAUC(cal_data[,pii],cal_data[,outcome])
+    print(sprintf(
+      "%s, trainAUC: %4.3f calibrationAUC: %4.3f",
+      pii,aucTrain,aucCal))
+  }
+}
+```
+```{r, fig.height=4}
+ggplot(data=cal_data) +
+  geom_density(aes(x=uploads.log,color=as.factor(average_yearly_earnings.binary)))
+```
+
+## Evaulating Single Variable Models using Log likelihood
+
+```{r}
+logLikelihood <- function(ypred, ytrue) {
+  sum(ifelse(ytrue, log(ypred), log(1-ypred)), na.rm=T)
+}
+```
+
+Compute the log likelihood of the Null model
+
+```{r}
+# Compute the likelihood of the Null model on the calibration set
+logNull <- logLikelihood(sum(cal_data[,outcome]==pos)/nrow(cal_data), cal_data[,outcome]==pos)
+
+cat("The log likelihood of the Null model is:", logNull)
+```
+Run through categorical variables to select top performers
+
+```{r}
+# selCatVars is a vector that keeps the names of the top performing categorical variables.
+selCatVars <- c()
+minDrop <- 0  # may need to adjust this number
+
+for (v in colnames(catVars)) {
+  pi <- paste('pred', v, sep='')
+  devDrop <- 2*(logLikelihood(cal_data[,pi], cal_data[,outcome]==pos) - logNull)
+  if (devDrop >= minDrop) {
+    cat(sprintf("%6s, deviance reduction: %g\n", v, devDrop))
+    selCatVars <- c(selCatVars, pi)
+  }
+}
+selCatVars
+```
+Run through numerical variables to select top performers
+
+```{r}
+selNumVars <- c()
+minDrop <- -10  # may need to adjust this number
+for (v in colnames(numVars)) {
+  pi <- paste('pred', v, sep='')
+  devDrop <- 2*(logLikelihood(cal_data[,pi], cal_data[,outcome]==pos) - logNull)
+  print(devDrop)
+  if (devDrop >= minDrop) {
+    cat(sprintf("%6s, deviance reduction: %g\n", v, devDrop))
+    selNumVars <- c(selNumVars, pi)
+  }
+}
+selNumVars
+```
+
 
 # Multi-Variable Models
 

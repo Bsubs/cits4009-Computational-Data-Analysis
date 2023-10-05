@@ -1,0 +1,73 @@
+---
+title: "Sergio_project"
+author: "Joo Kai Tay (22489437)"
+date: "2023-10-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ggplot2)
+library(gridExtra)
+library(dplyr)
+library(ggthemes)
+library(numform)
+library(timeDate)
+library(lubridate)
+library(reshape2)
+library(ca)
+library(tidyr)
+library(ape)
+library(knitr)
+library(ROCR)
+library(rpart)
+library(grid)
+library(gridExtra)
+library(tidyverse)
+library(data.table)
+library(xgboost)
+library(vtreat)
+```
+
+```{r}
+cits4009_theme <- theme_few() + # Theme based on S. Few's "Practical Rules for Using Color in Charts"
+                  theme(plot.title = element_text(color = "darkred")) +
+                  theme(strip.text.x = element_text(size = 14, colour = "#202020")) +
+                  theme(plot.margin=margin(10,30,10,30))
+
+cits4009_map_theme <- cits4009_theme + 
+                      theme(panel.grid = element_blank(),
+                            panel.border = element_blank(),
+                            legend.position="top", legend.direction = 'horizontal',
+                            axis.title.x=element_blank(),
+                            axis.text.x=element_blank(),
+                            axis.ticks.x=element_blank(),
+                            axis.title.y=element_blank(),
+                            axis.text.y=element_blank(),
+                            axis.ticks.y=element_blank())
+
+cits4009_radar_theme <- theme(plot.title = element_text(color = "darkred", size = 14, hjust = 0.5)) +
+                  theme(strip.text.x = element_text(size = 12, colour = "#202020")) +
+                  theme(plot.margin=margin(1,1,1,1))
+```
+
+```{r}
+data.path <- './data/globalterrorismdb_0718dist.csv'
+attacks <- read.csv(data.path)
+```
+
+
+```{r}
+attacks <-  attacks %>% mutate(affected = nwound + nkill ) %>%
+            mutate(aff_val = cut(affected, breaks = c(0, 1, Inf), include.lowest=T, right=F)) %>% # this is for "binary" classification
+            filter(!is.na(aff_val)) # keep only non-na values
+table(attacks$aff_val)
+```
+
+```{r}
+round(prop.table(table(attacks$aff_val)), 2)
+```
+
