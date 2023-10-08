@@ -86,6 +86,8 @@ library(stringr)
 library(reshape2)
 library(caret)
 library(ROCR)
+library(MASS)
+library(FactoMineR)
 ```
 
 ```{r}
@@ -215,9 +217,9 @@ minmax_scale <- function(x) {
 # @param trans the type of transform to apply
 transform_cols <- function(df, features, trans) {
   if(trans == "log"){
-    # Uses log1p which computes log(1 + x) to avoid returning NaN on 0 or -ve values
+    # Apply log transform
     df <- df %>%
-      mutate(across(all_of(features), log1p, .names = "{col}.log"))
+      mutate(across(all_of(features), ~log(. + 1e-6), .names = "{col}.log"))
   } else if (trans == "minmax") {
     # Applying min-max scaling
     df <- df %>%
@@ -489,11 +491,9 @@ separate_vars <- function(df) {
   numeric_var_names <- names(df)[sapply(df, is.numeric)]
   factor_var_names <- names(df)[sapply(df, is.character)]
 
-  numVars <- df %>%
-    select(all_of(numeric_var_names))
+  numVars <- subset(df, select=numeric_var_names)
 
-  catVars <- df %>%
-    select(all_of(factor_var_names))
+  catVars <- subset(df, select=factor_var_names)
   
   return(list(numVars = numVars, catVars = catVars))
 }
@@ -645,10 +645,188 @@ for (v in colnames(numVars)) {
 selNumVars
 ```
 
+# Feature Selection
 
-# Multi-Variable Models
+## Forward Selection
 
-- copy from machine learning
+Forward selection using AIC is a stepwise model selection procedure for building regression models. We will choose it as the first method for feature selection.  We begin with the null model and  for each predictor not in the model, we add it to the model and compute the AIC (Akaike Information Criterion). 
+
+AIC is a criterion used for model selection. In the context of multiple regression models, AIC balances the fit of the model (in terms of the likelihood) with the number of predictors used. It is formulated as:
+
+AIC = 2k - 2ln(L)
+
+Where:
+
+- k is the number of parameters in the model.
+- L is the likelihood of the model.
+
+The objective in using AIC for model selection is to find the model that has the lowest AIC value. Lower AIC values suggest better model fit when penalizing for the number of predictors, ensuring that we don't overfit with too many variables.
+
+```{r}
+# This function performs feature selection using forward selection
+# @param df The dataframe that contains the features
+# @param response The response variable
+forward_selection <- function(df, response) {
+  # Get names of variables minus response variable
+  predictors <- setdiff(names(df), response)
+  # What features we select
+  included <- c()
+  best_aic <- Inf
+  
+  # Loop to iteratively add predictors
+  while(length(predictors) > 0) {
+    aics <- rep(Inf, length(predictors))
+    
+    # Test each predictor
+    for(j in seq_along(predictors)) {
+      formula <- paste(response, "~", paste(c(included, predictors[j]), collapse = "+"))
+      model <- lm(formula, data = df)
+      aics[j] <- AIC(model)
+    }
+    
+    # If we find a predictor that reduces the AIC, we include it
+    if(min(aics) < best_aic) {
+      best_aic <- min(aics)
+      include <- predictors[which.min(aics)]
+      included <- c(included, include)
+      predictors <- setdiff(predictors, include)
+    } else {
+      break
+    }
+  }
+  
+  return(included)
+}
+```
+
+
+```{r}
+#get only log cols
+non_pred_columns <- !grepl("^pred", names(train_data))
+train_clean <- train_data[, non_pred_columns]
+train_clean <- subset(train_clean, select=-c(Country, channel_type, created_month))
+
+
+selected_features <- forward_selection(train_clean, "average_yearly_earnings.binary")
+print(selected_features)
+```
+
+## Principal Component Analysis (PCA)
+
+```{r}
+# Check for missing values
+if(any(is.na(train_clean))) {
+  train_clean[is.na(train_clean)] <- 0  # Replacing NAs with 0, you can choose other imputation methods if you prefer
+}
+
+# Perform PCA
+pca <- prcomp(subset(train_clean, select=-c(average_yearly_earnings.binary)), center = TRUE, scale. = TRUE, rank. = 2)
+
+# Get the explained variance ratio
+explained_variance_ratio <- pca$sdev^2 / sum(pca$sdev^2)
+
+# Convert principal components and cn_train_y into a data frame for ggplot
+df_pca <- as.data.frame(pca$x)
+df_pca$class <- as.factor(train_clean$average_yearly_earnings.binary)
+
+# Create a scatter plot with different colors for the two classes using ggplot2
+ggplot(df_pca, aes(x = PC1, y = PC2, color = class)) +
+  geom_point(aes(shape = class), size = 3) +
+  scale_color_manual(values = c("blue", "red"), name = "Class") +
+  labs(x = sprintf('Principal Component 1 (%.2f%%)', explained_variance_ratio[1]*100),
+       y = sprintf('Principal Component 2 (%.2f%%)', explained_variance_ratio[2]*100),
+       title = 'Scatter Plot of Data on First Two Principal Components') +
+  theme_minimal() +
+  theme(legend.position = "top")
+```
+
+The plot above shows the scatter plot of the data on the first two principal components. We can observe the following:
+
+Class Separation: The scatter plot shows that the two classes are linearly separable in the reduced two-dimensional space. This indicates that the first two principal components capture meaningful information that helps distinguish between the classes.
+
+The explained variance ratio provides insight into the relative importance or contribution of each principal component in capturing the underlying structure of the data. Higher values indicate that the corresponding principal component retains more information about the original dataset.
+
+These values indicate that the first principal component explains approximately 38.11% of the total variance in the dataset, while the second principal component explains approximately 14.12% of the total variance. Together, these two components account for a total of approximately 52.23% of the total variance in the data.
+
+The first principal component captures a significant portion of the variance, indicating that it carries valuable information and potentially separates the classes to a certain extent. The second principal component also contributes to the overall variance, but to a lesser extent compared to the first component.
+
+
+```{r}
+# Convert the principal components and labels into a data frame
+df_pca <- as.data.frame(pca$x)
+df_pca$class <- as.factor(train_clean$average_yearly_earnings.binary)
+
+# Get the variable vectors (loadings)
+variable_vectors <- pca$rotation[, 1:2]
+
+# Start with a scatter plot of the observed data projected on the first two principal components
+p <- ggplot(df_pca, aes(x = PC1, y = PC2, color = class)) +
+  geom_point(aes(shape = class), size = 3, alpha = 0.5) +   # Semi-transparent points
+  scale_color_manual(values = c("blue", "red"), name = "Class") +
+  theme_minimal() +
+  theme(legend.position = "top") +
+  labs(x = 'Principal Component 1',
+       y = 'Principal Component 2',
+       title = 'Biplot of Data on First Two Principal Components')
+
+variable_vectors_df <- as.data.frame(variable_vectors)
+variable_vectors_df$label <- rownames(variable_vectors)
+
+multiplier <- 3
+
+p <- p + 
+     geom_segment(data = variable_vectors_df, 
+                  aes(x = 0, y = 0, 
+                      xend = PC1 * 5 * multiplier, yend = PC2 * 5 * multiplier), 
+                  arrow = arrow(type = "closed", length = unit(0.15, "inches")), 
+                  color = 'black', alpha = 0.5) + 
+     geom_text(data = variable_vectors_df, 
+               aes(x = PC1 * 5.2 * multiplier, y = PC2 * 5.2 * multiplier, label = label), 
+               vjust = -0.5, hjust = 0, alpha = 0.8, inherit.aes = FALSE)
+
+# Display the plot
+print(p)
+```
+
+The plot above shows the biplot of the data on the first two principal components. The horizontal axis represents the first principal component (PC1), which captures the most significant variation in the data. The vertical axis represents the second principal component (PC2), which captures the second most significant variation orthogonal to PC1.
+
+- The features are represented as arrows in the plot
+- The direction and length of the arrows indicate the contribution of each variable to the principal components.
+- Variables pointing in the same direction are positively correlated, while those pointing in opposite directions are negatively correlated.
+- Longer arrows represent variables with a stronger influence on the principal components.
+
+### Using PCA to retain 95% of the explained variance
+
+```{r}
+# Calculate cumulative explained variance ratio
+cumsum <- cumsum(pca$sdev^2 / sum(pca$sdev^2))
+
+# Determine the number of components for 95% explained variance
+n_components <- which(cumsum >= 0.95)[1]
+
+print("Number of components for 95% explained variance: %d\n", n_components)
+
+# Use PCA with 95% explained variance
+library(FactoMineR)  # For the PCA function with proportion of inertia parameter
+res.pca <- PCA(train_clean, scale.unit = TRUE, ncp = n_components, graph = FALSE)
+
+# Get transformed training data
+train_data_pca <- as.data.frame(res.pca$ind$coord)
+
+# Transform the test data
+# Note: The FactoMineR PCA function doesn't support directly transforming new data. 
+# However, you can achieve this by projecting the test data onto the PCA loadings.
+test_data_pca <- as.data.frame(scale(test_data, center = res.pca$call$centre, scale = res.pca$call$ecart.type) %*% t(res.pca$var$coord))
+```
+
+
+**Interpreting the plot**:
+
+- At the bottom of the plot, there's a large cluster of highly correlated features for both of the principal components. However, The length of the arrows for each of these features is not very long which suggests that individually, they might not have significant impact on either of the principal components. However, the large number of correlated features could potentially pose an issue.
+- In the middle of the plot, we have a long arrow for `concave_points_mean`video_views_rank.log` which is parallel to the axis of principal component 1. This suggests that it is very important to this principal component and holds alot of the variance. 
+- At the top of the plot, we have 4 very long arrows for `Gross_tertiary_enrollment.log`, `Unemployment.rate.log`, `Latitude.log` and `Population.log`. These 4 geographic features seem to have a significant weighting in the second principal component.
+
+## Random Forest 
 
 
 
