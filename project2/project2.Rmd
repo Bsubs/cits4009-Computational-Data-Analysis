@@ -2,7 +2,9 @@
 title: "CITS4009 - Project 2"
 author: "Joo Kai Tay (22489437)"
 date: "2023-09-25"
-output: html_document
+output:
+  html_document:
+    code_folding: hide
 ---
 ```{css}
 img {
@@ -88,6 +90,10 @@ library(caret)
 library(ROCR)
 library(MASS)
 library(FactoMineR)
+library(tidymodels)
+library(glmnet)
+library(parsnip)
+library(yardstick)
 ```
 
 ```{r}
@@ -701,24 +707,45 @@ forward_selection <- function(df, response) {
 
 
 ```{r}
-#get only log cols
-non_pred_columns <- !grepl("^pred", names(train_data))
-train_clean <- train_data[, non_pred_columns]
-train_clean <- subset(train_clean, select=-c(Country, channel_type, created_month))
+clean_data <- function(df){
+  cols_to_keep <- !grepl("^pred", names(train_data))
+  df1 <- df[, cols_to_keep]
+  df1 <- subset(df1, select=-c(Country, channel_type, created_month))
+  if(any(is.na(df1))) {
+    df1[is.na(df1)] <- 0  # this is sketch af FIX THIS ASAP
+  }
+  return(df1)
+}
+
+train_clean <- clean_data(train_data)
+test_clean <- clean_data(test_data)
+cal_clean <- clean_data(cal_data)
 
 
 selected_features <- forward_selection(train_clean, "average_yearly_earnings.binary")
 print(selected_features)
 ```
 
-## Principal Component Analysis (PCA)
+We will create new dataframes for the training, calibration and test sets based on the features from forward selection.
 
 ```{r}
-# Check for missing values
-if(any(is.na(train_clean))) {
-  train_clean[is.na(train_clean)] <- 0  # Replacing NAs with 0, you can choose other imputation methods if you prefer
-}
+train_forward_sel <- subset(train_clean, select=c(selected_features))
+cal_forward_sel <- subset(cal_data, select=c(selected_features))
+test_forward_sel <- subset(test_data, select=c(selected_features))
 
+train_forward_sel$average_yearly_earnings.binary <- as.factor(train_data$average_yearly_earnings.binary)
+cal_forward_sel$average_yearly_earnings.binary <- as.factor(cal_data$average_yearly_earnings.binary)
+test_forward_sel$average_yearly_earnings.binary <- as.factor(test_data$average_yearly_earnings.binary)
+```
+
+
+## Principal Component Analysis (PCA)
+
+Many machine learning problems face the problem of having too many features which makes the training process very slow and also can possibly make it hard to converge on an optimal solution, which is referred to as the **curse of dimensionality**. One of the approaches that can be used to solve this is through dimensionality reduction techniques. This not only speeds up training, it also makes it significantly easier to visualize the data, reducing a training set to 2 or 3 dimensions can make it possible to plot a condensed view of a high dimensional training set and gain insights on potential clusters in the data. 
+
+Principal Component Analysis (PCA) is one such dimensionality reduction technique. PCA identifies the hyper plane that preserves the maximum variance of the data and then projects the data onto it. The first principal component is the axis that accounts for the largest amount of the variance in the training set, and the second principal component is orthogonal to the first one, that accounts for the largest amount of the remaining variance.
+
+```{r}
 # Perform PCA
 pca <- prcomp(subset(train_clean, select=-c(average_yearly_earnings.binary)), center = TRUE, scale. = TRUE, rank. = 2)
 
@@ -746,7 +773,7 @@ Class Separation: The scatter plot shows that the two classes are linearly separ
 
 The explained variance ratio provides insight into the relative importance or contribution of each principal component in capturing the underlying structure of the data. Higher values indicate that the corresponding principal component retains more information about the original dataset.
 
-These values indicate that the first principal component explains approximately 38.11% of the total variance in the dataset, while the second principal component explains approximately 14.12% of the total variance. Together, these two components account for a total of approximately 52.23% of the total variance in the data.
+These values indicate that the first principal component explains approximately 43.49% of the total variance in the dataset, while the second principal component explains approximately 13.96% of the total variance. Together, these two components account for a total of approximately 57.45% of the total variance in the data.
 
 The first principal component captures a significant portion of the variance, indicating that it carries valuable information and potentially separates the classes to a certain extent. The second principal component also contributes to the overall variance, but to a lesser extent compared to the first component.
 
@@ -759,7 +786,6 @@ df_pca$class <- as.factor(train_clean$average_yearly_earnings.binary)
 # Get the variable vectors (loadings)
 variable_vectors <- pca$rotation[, 1:2]
 
-# Start with a scatter plot of the observed data projected on the first two principal components
 p <- ggplot(df_pca, aes(x = PC1, y = PC2, color = class)) +
   geom_point(aes(shape = class), size = 3, alpha = 0.5) +   # Semi-transparent points
   scale_color_manual(values = c("blue", "red"), name = "Class") +
@@ -795,39 +821,280 @@ The plot above shows the biplot of the data on the first two principal component
 - Variables pointing in the same direction are positively correlated, while those pointing in opposite directions are negatively correlated.
 - Longer arrows represent variables with a stronger influence on the principal components.
 
-### Using PCA to retain 95% of the explained variance
-
-```{r}
-# Calculate cumulative explained variance ratio
-cumsum <- cumsum(pca$sdev^2 / sum(pca$sdev^2))
-
-# Determine the number of components for 95% explained variance
-n_components <- which(cumsum >= 0.95)[1]
-
-print("Number of components for 95% explained variance: %d\n", n_components)
-
-# Use PCA with 95% explained variance
-library(FactoMineR)  # For the PCA function with proportion of inertia parameter
-res.pca <- PCA(train_clean, scale.unit = TRUE, ncp = n_components, graph = FALSE)
-
-# Get transformed training data
-train_data_pca <- as.data.frame(res.pca$ind$coord)
-
-# Transform the test data
-# Note: The FactoMineR PCA function doesn't support directly transforming new data. 
-# However, you can achieve this by projecting the test data onto the PCA loadings.
-test_data_pca <- as.data.frame(scale(test_data, center = res.pca$call$centre, scale = res.pca$call$ecart.type) %*% t(res.pca$var$coord))
-```
-
-
 **Interpreting the plot**:
 
 - At the bottom of the plot, there's a large cluster of highly correlated features for both of the principal components. However, The length of the arrows for each of these features is not very long which suggests that individually, they might not have significant impact on either of the principal components. However, the large number of correlated features could potentially pose an issue.
 - In the middle of the plot, we have a long arrow for `concave_points_mean`video_views_rank.log` which is parallel to the axis of principal component 1. This suggests that it is very important to this principal component and holds alot of the variance. 
 - At the top of the plot, we have 4 very long arrows for `Gross_tertiary_enrollment.log`, `Unemployment.rate.log`, `Latitude.log` and `Population.log`. These 4 geographic features seem to have a significant weighting in the second principal component.
 
-## Random Forest 
+### Using PCA to retain 95% of the explained variance
 
+```{r, fig.height=4}
+# Compute the PCA without limiting to 2 PC
+pca <- prcomp(train_clean, center = TRUE, scale. = TRUE)
+explained_variance_ratio <- pca$sdev^2 / sum(pca$sdev^2)
+cumulative_variance <- cumsum(explained_variance_ratio)
+num_components <- which(cumulative_variance >= 0.95)[1]
+
+explained_variance_data <- data.frame(
+  Dimension = 1:length(explained_variance_ratio),
+  ExplainedVariance = explained_variance_ratio,
+  CumulativeVariance = cumulative_variance
+)
+
+
+ggplot(explained_variance_data, aes(x = Dimension)) +
+  geom_bar(aes(y = ExplainedVariance), stat = "identity", fill = "blue", alpha = 0.7) +
+  geom_line(aes(y = CumulativeVariance), color = "red", size = 1.2) +
+  geom_point(aes(y = CumulativeVariance), color = "red") +
+  geom_vline(aes(xintercept = 10), color = "black", linetype = "dashed", size = 1) +
+  annotate("text", x = num_components, y = 0.8, label = "Number of components required to retain\n95% of the explained variance", hjust = -0.05) +
+  labs(
+    title = "Explained Variance as a Function of Dimensions",
+    x = "Number of Dimensions",
+    y = "Variance Explained",
+    caption = "Blue Bars = Individual Explained Variance\nRed Line = Cumulative Explained Variance"
+  ) +
+  scale_y_continuous(labels = scales::percent) +
+  theme_minimal()
+
+```
+
+
+The explained variance ratio indicates the proportion of the dataset’s variance that lies along each principal component. As seen in the first plot, the first 2 principal components capture only 57.45% of the variance in the dataset. This is not sufficient information as we are losing more than 40% of the explained variance. In order for a more accurate prediction, we would want to retain at least 95% of the explained variance. 
+
+The plot above shows the explained variance as a function of number of dimensions. The line in red shows the cumulative explained variance and the bars in blue shows the individual explained variance of each principal component. It can be observed that after 10 dimensions, we have captured 95% of the explained variance in the data and adding any subsequent dimensions provides very little for the increasing complexity. 
+
+```{r}
+# Function to apply PCA transformation on new datasets
+transform_data <- function(data, pca, num_components) {
+  centered_data <- scale(data, center = pca$center, scale = pca$scale)
+  pc_scores <- centered_data %*% pca$rotation[, 1:num_components]
+  return(as.data.frame(pc_scores))
+}
+
+
+train_pca <- as.data.frame(pca$x[, 1:num_components])
+cal_pca <- transform_data(cal_clean, pca, num_components)
+test_pca <- transform_data(test_clean, pca, num_components)
+
+train_pca$average_yearly_earnings.binary <- as.factor(train_data$average_yearly_earnings.binary)
+cal_pca$average_yearly_earnings.binary <- as.factor(cal_data$average_yearly_earnings.binary)
+test_pca$average_yearly_earnings.binary <- as.factor(test_data$average_yearly_earnings.binary)
+```
+
+
+# Evaluation of Models
+
+
+## Functions 
+
+**DESCRIBE EACH FUNCTION (purpose)**
+
+```{r}
+# This function calculates the accuracy, precision, recall and F1 score for a model
+cal_scores <- function(model, train_data, calibration_data){
+  # Predict outcomes for the training data
+  train_pred <- predict(model, train_data, type = "class")
+  
+  # Predict outcomes for the calibration data
+  calibration_pred <- predict(model, calibration_data, type = "class")
+  
+  # Calculate metrics for the training data
+  train_results <- tibble(
+    Accuracy  = accuracy_vec(train_data$average_yearly_earnings.binary, train_pred$.pred_class),
+    Precision = precision_vec(train_data$average_yearly_earnings.binary, train_pred$.pred_class),
+    Recall    = recall_vec(train_data$average_yearly_earnings.binary, train_pred$.pred_class),
+    F1        = f_meas_vec(train_data$average_yearly_earnings.binary, train_pred$.pred_class)
+  )
+  
+  # Calculate metrics for the calibration data
+  calibration_results <- tibble(
+    Accuracy  = accuracy_vec(calibration_data$average_yearly_earnings.binary, calibration_pred$.pred_class),
+    Precision = precision_vec(calibration_data$average_yearly_earnings.binary, calibration_pred$.pred_class),
+    Recall    = recall_vec(calibration_data$average_yearly_earnings.binary, calibration_pred$.pred_class),
+    F1        = f_meas_vec(calibration_data$average_yearly_earnings.binary, calibration_pred$.pred_class)
+  )
+  
+  list(train = train_results, calibration = calibration_results)
+}
+```
+
+```{r}
+# This function plots precision and recall vs threshold
+plot_precision_recall_vs_threshold <- function(model, data, title) {
+  # Predict the probabilities
+  probs <- predict(model, data, type = "prob")$.pred_1
+  
+  # Create a data frame with true labels and predicted probabilities
+  results <- data.frame(
+    True = data$average_yearly_earnings.binary,
+    Prob = probs
+  )
+  
+  # For each threshold, compute precision and recall
+  thresholds <- seq(0, 1, by = 0.01)
+  metrics <- sapply(thresholds, function(thresh) {
+    predictions <- ifelse(results$Prob > thresh, 1, 0)
+    # Ensure predictions always have levels 0 and 1
+    predictions <- factor(predictions, levels = c(0, 1))
+    
+    precision <- precision_vec(results$True, predictions)
+    recall <- recall_vec(results$True, predictions)
+    c(Precision = precision, Recall = recall)
+  })
+  
+  # Transform results for plotting
+  df <- as.data.frame(t(metrics))
+  df$Threshold <- thresholds
+  df$Difference <- abs(df$Precision - df$Recall)
+  intersection_point <- df[which.min(df$Difference), "Threshold"]
+  
+  p <- ggplot(df, aes(x = Threshold)) +
+    geom_line(aes(y = Precision, color = 'Precision')) +
+    geom_line(aes(y = Recall, color = 'Recall')) +
+    labs(title = title, 
+         y = "Value", 
+         x = "Threshold",
+         color = "Metric") +
+    geom_vline(aes(xintercept = 0.5), linetype = "dashed", color = "black", size = 0.5) +
+    geom_text(aes(x = 0.5, y = 0.2, label = "Default threshold"), angle = 90, vjust = -0.5) +
+    geom_vline(aes(xintercept = intersection_point), linetype = "dashed", color = "red", size = 0.5) +
+    geom_text(aes(x = intersection_point, y = 0.2, 
+                  label = paste0("Intersection ", round(intersection_point, 2))), angle = 90, vjust = -0.5) +
+    theme_minimal()
+  
+  return(p)
+}
+```
+
+
+```{r}
+# This function plots the ROC 
+plot_roc <- function(model, data) {
+  # Predict the probabilities
+  probs <- predict(model, data, type = "prob")$.pred_1
+  
+  # Create a data frame with true labels and predicted probabilities
+  results <- data.frame(
+    True = data$average_yearly_earnings.binary,
+    Prob = probs
+  )
+  
+  # Compute the ROC curve values using yardstick::roc_curve()
+  roc_values <- roc_curve(results, True, Prob)
+  
+  # Compute the AUC
+  auc_value <- roc_auc(results, True, Prob)
+  
+  # Plot the ROC curve
+  p <- ggplot(roc_values, aes(x = 1 - specificity, y = sensitivity)) +
+    geom_line() +
+    geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
+    labs(title = paste("ROC Curve (AUC =", round(auc_value$.estimate, 3), ")"), 
+         x = "False Positive Rate", 
+         y = "True Positive Rate") +
+    theme_minimal()
+  
+  return(p)
+}
+```
+
+```{r}
+# Plot confusion matrix
+plot_con_matrix <- function(model, data, threshold = 0.5){
+  train_pred <- predict(model, data, type = "class")
+  cm <- confusionMatrix(as.factor(train_pred[[1]]), data$average_yearly_earnings.binary)
+  plt <- as.data.frame(cm$table)
+  plt$Prediction <- factor(plt$Prediction, levels=rev(levels(plt$Prediction)))
+  ggplot(plt, aes(Prediction,Reference, fill= Freq)) +
+          geom_tile() + geom_text(aes(label=Freq)) +
+          scale_fill_gradient(low="white", high="#009194") +
+          labs(x = "Reference",y = "Prediction") 
+}
+```
+
+# Logistic Regression Classifier
+
+Logistic regression aims to find the best possible fit between the selected features and the target variable to predict the probability of the target variable being of high or low earnings. 
+
+The following function returns a logistic regression model given a set of inputs, we will use this to test the various inputs given the two feature selection strategies, forward selection and PCA. The model uses lasso regression and the glmnet engine which allows us to set a penalty value. The strength of this penalty value can be tuned to give us optimal results. 
+
+```{r}
+train_log_reg <- function(df) {
+  # Train a logistic regression model
+  model <- logistic_reg(mixture = double(1), penalty = double(1)) %>%
+    set_engine("glmnet") %>%
+    set_mode("classification") %>%
+    fit(average_yearly_earnings.binary ~ ., data = df)
+  
+  return(model)
+}
+```
+
+## Logistic Regression with Forward Selection Features
+
+```{r}
+log_reg_forward <- train_log_reg(train_forward_sel)
+tidy(log_reg_forward)
+```
+
+```{r}
+performance_log_reg_forward_sel <- cal_scores(log_reg_forward, train_forward_sel, cal_forward_sel)
+print(performance_log_reg_forward_sel$train)
+print(performance_log_reg_forward_sel$calibration)
+```
+
+
+```{r, fig.width=10, fig.height=4}
+p1 <- plot_precision_recall_vs_threshold(log_reg_forward, train_forward_sel, "Precision and Recall vs. Threshold, Train Set")
+p2 <- plot_precision_recall_vs_threshold(log_reg_forward, cal_forward_sel, "Precision and Recall vs. Threshold, Cal Set")
+grid.arrange(p1, p2, ncol=2)
+```
+
+```{r, fig.width=8, fig.height=4}
+p1 <- plot_roc(log_reg_forward, train_forward_sel)
+p2 <- plot_roc(log_reg_forward, cal_forward_sel)
+grid.arrange(p1, p2, ncol=2)
+```
+
+```{r, fig.width=8, fig.height=4}
+p1 <- plot_con_matrix(log_reg_forward, train_forward_sel)
+p2 <- plot_con_matrix(log_reg_forward, cal_forward_sel)
+grid.arrange(p1, p2, ncol=2)
+```
+
+
+## Logistic Regression Classifier with PCA Features
+
+```{r}
+log_reg_pca <- train_log_reg(train_pca)
+tidy(log_reg_pca)
+```
+
+```{r}
+performance_log_reg_pca <- cal_scores(log_reg_pca, train_pca, cal_pca)
+print(performance_log_reg_pca$train)
+print(performance_log_reg_pca$calibration)
+```
+
+```{r, fig.width=10, fig.height=4}
+p1 <- plot_precision_recall_vs_threshold(log_reg_pca, train_pca, "Precision and Recall vs. Threshold, Train Set")
+p2 <- plot_precision_recall_vs_threshold(log_reg_pca, cal_pca, "Precision and Recall vs. Threshold, Cal Set")
+grid.arrange(p1, p2, ncol=2)
+```
+
+```{r, fig.width=8, fig.height=4}
+p1 <- plot_roc(log_reg_pca, train_pca)
+p2 <- plot_roc(log_reg_pca, cal_pca)
+grid.arrange(p1, p2, ncol=2)
+```
+
+```{r, fig.width=8, fig.height=4}
+p1 <- plot_con_matrix(log_reg_pca, train_pca)
+p2 <- plot_con_matrix(log_reg_pca, cal_pca)
+grid.arrange(p1, p2, ncol=2)
+```
 
 
 
