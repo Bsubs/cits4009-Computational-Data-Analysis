@@ -762,7 +762,7 @@ df_pca$class <- as.factor(train_clean$average_yearly_earnings.binary)
 # Create a scatter plot with different colors for the two classes using ggplot2
 ggplot(df_pca, aes(x = PC1, y = PC2, color = class)) +
   geom_point(aes(shape = class), size = 3) +
-  scale_color_manual(values = c("blue", "red"), name = "Class") +
+  scale_color_manual(values = c("coral1", "cornflowerblue"), name = "Class") +
   labs(x = sprintf('Principal Component 1 (%.2f%%)', explained_variance_ratio[1]*100),
        y = sprintf('Principal Component 2 (%.2f%%)', explained_variance_ratio[2]*100),
        title = 'Scatter Plot of Data on First Two Principal Components') +
@@ -791,7 +791,7 @@ variable_vectors <- pca$rotation[, 1:2]
 
 p <- ggplot(df_pca, aes(x = PC1, y = PC2, color = class)) +
   geom_point(aes(shape = class), size = 3, alpha = 0.5) +   # Semi-transparent points
-  scale_color_manual(values = c("blue", "red"), name = "Class") +
+  scale_color_manual(values = c("coral1", "cornflowerblue"), name = "Class") +
   theme_minimal() +
   theme(legend.position = "top") +
   labs(x = 'Principal Component 1',
