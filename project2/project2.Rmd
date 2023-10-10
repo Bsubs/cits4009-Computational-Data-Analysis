@@ -94,6 +94,8 @@ library(tidymodels)
 library(glmnet)
 library(parsnip)
 library(yardstick)
+library(rpart)
+library(rpart.plot)
 ```
 
 ```{r}
@@ -439,6 +441,7 @@ table(youtube$average_yearly_earnings.binary)
 ```
 ```{r}
 youtube$average_yearly_earnings.binary <- ifelse(youtube$average_yearly_earnings.log > 14.14, 1, 0)
+youtube <- subset(youtube, select=-c(average_yearly_earnings.log, highest_yearly_earnings.log, lowest_yearly_earnings.log, highest_monthly_earnings.log, lowest_monthly_earnings.log))
 table(youtube$average_yearly_earnings.binary)
 ```
 
@@ -730,8 +733,8 @@ We will create new dataframes for the training, calibration and test sets based 
 
 ```{r}
 train_forward_sel <- subset(train_clean, select=c(selected_features))
-cal_forward_sel <- subset(cal_data, select=c(selected_features))
-test_forward_sel <- subset(test_data, select=c(selected_features))
+cal_forward_sel <- subset(cal_clean, select=c(selected_features))
+test_forward_sel <- subset(test_clean, select=c(selected_features))
 
 train_forward_sel$average_yearly_earnings.binary <- as.factor(train_data$average_yearly_earnings.binary)
 cal_forward_sel$average_yearly_earnings.binary <- as.factor(cal_data$average_yearly_earnings.binary)
@@ -893,12 +896,7 @@ test_pca$average_yearly_earnings.binary <- as.factor(test_data$average_yearly_ea
 
 ```{r}
 # This function calculates the accuracy, precision, recall and F1 score for a model
-cal_scores <- function(model, train_data, calibration_data){
-  # Predict outcomes for the training data
-  train_pred <- predict(model, train_data, type = "class")
-  
-  # Predict outcomes for the calibration data
-  calibration_pred <- predict(model, calibration_data, type = "class")
+cal_scores <- function(train_data, train_pred, calibration_data, calibration_pred){
   
   # Calculate metrics for the training data
   train_results <- tibble(
@@ -922,9 +920,9 @@ cal_scores <- function(model, train_data, calibration_data){
 
 ```{r}
 # This function plots precision and recall vs threshold
-plot_precision_recall_vs_threshold <- function(model, data, title) {
+plot_precision_recall_vs_threshold <- function(pred, data, title) {
   # Predict the probabilities
-  probs <- predict(model, data, type = "prob")$.pred_1
+  probs <-pred$.pred_1
   
   # Create a data frame with true labels and predicted probabilities
   results <- data.frame(
@@ -971,40 +969,35 @@ plot_precision_recall_vs_threshold <- function(model, data, title) {
 
 ```{r}
 # This function plots the ROC 
-plot_roc <- function(model, data) {
+plot_roc <- function(predictions, data) {
   # Predict the probabilities
-  probs <- predict(model, data, type = "prob")$.pred_1
-  
-  # Create a data frame with true labels and predicted probabilities
-  results <- data.frame(
-    True = data$average_yearly_earnings.binary,
-    Prob = probs
+  probs <- predictions$.pred_1
+  pred <- prediction(probs, data$average_yearly_earnings.binary)
+  perf <- performance(pred, "tpr", "fpr")
+  roc_data <- data.frame(
+    FPR = unlist(perf@x.values),
+    TPR = unlist(perf@y.values)
   )
-  
-  # Compute the ROC curve values using yardstick::roc_curve()
-  roc_values <- roc_curve(results, True, Prob)
-  
-  # Compute the AUC
-  auc_value <- roc_auc(results, True, Prob)
-  
-  # Plot the ROC curve
-  p <- ggplot(roc_values, aes(x = 1 - specificity, y = sensitivity)) +
-    geom_line() +
+  auc <- performance(pred, measure = "auc")
+  auc_value <- unlist(auc@y.values) 
+  ggplot(roc_data, aes(x = FPR, y = TPR)) +
+    geom_line(color = "blue") +
     geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
-    labs(title = paste("ROC Curve (AUC =", round(auc_value$.estimate, 3), ")"), 
-         x = "False Positive Rate", 
+    geom_text(aes(x = 0.5, y = 0.25), 
+              label = paste("AUC =", round(auc_value, 2)), 
+              color = "red") +
+    labs(title = "ROC Curve",
+         x = "False Positive Rate",
          y = "True Positive Rate") +
+    coord_fixed(ratio = 1) +
     theme_minimal()
-  
-  return(p)
 }
 ```
 
 ```{r}
 # Plot confusion matrix
-plot_con_matrix <- function(model, data, threshold = 0.5){
-  train_pred <- predict(model, data, type = "class")
-  cm <- confusionMatrix(as.factor(train_pred[[1]]), data$average_yearly_earnings.binary)
+plot_con_matrix <- function(pred, data, threshold = 0.5){
+  cm <- confusionMatrix(as.factor(pred[[1]]), data$average_yearly_earnings.binary)
   plt <- as.data.frame(cm$table)
   plt$Prediction <- factor(plt$Prediction, levels=rev(levels(plt$Prediction)))
   ggplot(plt, aes(Prediction,Reference, fill= Freq)) +
@@ -1037,30 +1030,36 @@ train_log_reg <- function(df) {
 ```{r}
 log_reg_forward <- train_log_reg(train_forward_sel)
 tidy(log_reg_forward)
+
+train_pred_log_reg_class <- predict(log_reg_forward, train_forward_sel, type = "class")
+calibration_pred_log_reg_class <- predict(log_reg_forward, cal_forward_sel, type = "class")
+
+train_pred_log_reg_pred <- predict(log_reg_forward, train_forward_sel, type = "prob")
+calibration_pred_log_reg_pred <- predict(log_reg_forward, cal_forward_sel, type = "prob")
 ```
 
 ```{r}
-performance_log_reg_forward_sel <- cal_scores(log_reg_forward, train_forward_sel, cal_forward_sel)
+performance_log_reg_forward_sel <- cal_scores(train_forward_sel, train_pred_log_reg_class, cal_forward_sel, calibration_pred_log_reg_class)
 print(performance_log_reg_forward_sel$train)
 print(performance_log_reg_forward_sel$calibration)
 ```
 
 
 ```{r, fig.width=10, fig.height=4}
-p1 <- plot_precision_recall_vs_threshold(log_reg_forward, train_forward_sel, "Precision and Recall vs. Threshold, Train Set")
-p2 <- plot_precision_recall_vs_threshold(log_reg_forward, cal_forward_sel, "Precision and Recall vs. Threshold, Cal Set")
+p1 <- plot_precision_recall_vs_threshold(train_pred_log_reg_pred, train_forward_sel, "Precision and Recall vs. Threshold, Train Set")
+p2 <- plot_precision_recall_vs_threshold(calibration_pred_log_reg_pred, cal_forward_sel, "Precision and Recall vs. Threshold, Cal Set")
 grid.arrange(p1, p2, ncol=2)
 ```
 
 ```{r, fig.width=8, fig.height=4}
-p1 <- plot_roc(log_reg_forward, train_forward_sel)
-p2 <- plot_roc(log_reg_forward, cal_forward_sel)
+p1 <- plot_roc(train_pred_log_reg_pred, train_forward_sel)
+p2 <- plot_roc(calibration_pred_log_reg_pred, cal_forward_sel)
 grid.arrange(p1, p2, ncol=2)
 ```
 
 ```{r, fig.width=8, fig.height=4}
-p1 <- plot_con_matrix(log_reg_forward, train_forward_sel)
-p2 <- plot_con_matrix(log_reg_forward, cal_forward_sel)
+p1 <- plot_con_matrix(train_pred_log_reg_class, train_forward_sel)
+p2 <- plot_con_matrix(calibration_pred_log_reg_class, cal_forward_sel)
 grid.arrange(p1, p2, ncol=2)
 ```
 
@@ -1070,31 +1069,170 @@ grid.arrange(p1, p2, ncol=2)
 ```{r}
 log_reg_pca <- train_log_reg(train_pca)
 tidy(log_reg_pca)
+
+train_pred_pca_class <- predict(log_reg_pca, train_pca, type = "class")
+calibration_pred_pca_class <- predict(log_reg_pca, cal_pca, type = "class")
+
+train_pred_log_reg_pred <- predict(log_reg_pca, train_pca, type = "prob")
+calibration_pred_log_reg_pred <- predict(log_reg_pca, cal_pca, type = "prob")
 ```
 
 ```{r}
-performance_log_reg_pca <- cal_scores(log_reg_pca, train_pca, cal_pca)
+performance_log_reg_pca <- cal_scores(train_pca, train_pred_pca_class, cal_pca, calibration_pred_pca_class)
 print(performance_log_reg_pca$train)
 print(performance_log_reg_pca$calibration)
 ```
 
 ```{r, fig.width=10, fig.height=4}
-p1 <- plot_precision_recall_vs_threshold(log_reg_pca, train_pca, "Precision and Recall vs. Threshold, Train Set")
-p2 <- plot_precision_recall_vs_threshold(log_reg_pca, cal_pca, "Precision and Recall vs. Threshold, Cal Set")
+p1 <- plot_precision_recall_vs_threshold(train_pred_log_reg_pred, train_pca, "Precision and Recall vs. Threshold, Train Set")
+p2 <- plot_precision_recall_vs_threshold(calibration_pred_log_reg_pred, cal_pca, "Precision and Recall vs. Threshold, Cal Set")
 grid.arrange(p1, p2, ncol=2)
 ```
 
 ```{r, fig.width=8, fig.height=4}
-p1 <- plot_roc(log_reg_pca, train_pca)
-p2 <- plot_roc(log_reg_pca, cal_pca)
+p1 <- plot_roc(train_pred_log_reg_pred, train_pca)
+p2 <- plot_roc(calibration_pred_log_reg_pred, cal_pca)
 grid.arrange(p1, p2, ncol=2)
 ```
 
 ```{r, fig.width=8, fig.height=4}
-p1 <- plot_con_matrix(log_reg_pca, train_pca)
-p2 <- plot_con_matrix(log_reg_pca, cal_pca)
+p1 <- plot_con_matrix(train_pred_pca_class, train_pca)
+p2 <- plot_con_matrix(calibration_pred_pca_class, cal_pca)
 grid.arrange(p1, p2, ncol=2)
 ```
+
+# Decision Tree
+
+Decision trees are another model type that makes predictions that are piecewise constant. 
+
+```{r}
+train_dt <- function(df) {
+  # Train a decision tree
+  model <- rpart(formula=average_yearly_earnings.binary ~ ., data = df)
+  
+  return(model)
+}
+```
+
+## Decision Tree Classifier with Forward Selection Features
+
+```{r, fig.height=4, fig.width=4}
+dt_forward <- train_dt(train_forward_sel)
+
+train_pred_dt_class <- as_tibble(predict(dt_forward, train_forward_sel, type = "class")) %>%
+  rename(".pred_class" = value)
+calibration_pred_dt_class <- as_tibble(predict(dt_forward, cal_forward_sel, type = "class")) %>%
+  rename(".pred_class" = value)
+
+train_pred_dt_pred <- as_tibble(predict(dt_forward, train_forward_sel, type = "prob")) %>%
+  rename(".pred_0" = `0`, ".pred_1" = `1`)
+calibration_pred_dt_pred <- as_tibble(predict(dt_forward, cal_forward_sel, type = "prob")) %>%
+  rename(".pred_0" = `0`, ".pred_1" = `1`)
+
+rpart.plot(dt_forward)
+```
+
+```{r}
+performance_dt_forward <- cal_scores(train_forward_sel, train_pred_dt_class, cal_forward_sel, calibration_pred_dt_class)
+print(performance_dt_forward$train)
+print(performance_dt_forward$calibration)
+```
+
+```{r, fig.width=10, fig.height=4}
+p1 <- plot_precision_recall_vs_threshold(train_pred_dt_pred, train_forward_sel, "Precision and Recall vs. Threshold, Train Set")
+p2 <- plot_precision_recall_vs_threshold(calibration_pred_dt_pred, cal_forward_sel, "Precision and Recall vs. Threshold, Cal Set")
+grid.arrange(p1, p2, ncol=2)
+```
+
+```{r, fig.width=8, fig.height=4}
+p1 <- plot_roc(train_pred_dt_pred, train_forward_sel)
+p2 <- plot_roc(calibration_pred_dt_pred, cal_forward_sel)
+grid.arrange(p1, p2, ncol=2)
+```
+
+```{r, fig.width=8, fig.height=4}
+p1 <- plot_con_matrix(train_pred_dt_class, train_forward_sel)
+p2 <- plot_con_matrix(calibration_pred_dt_class, cal_forward_sel)
+grid.arrange(p1, p2, ncol=2)
+```
+
+## Decision Tree Classifier with PCA Features
+
+```{r, fig.height=4, fig.width=4}
+dt_pca <- train_dt(train_pca)
+
+train_pred_dt_class_pca <- as_tibble(predict(dt_pca, train_pca, type = "class")) %>%
+  rename(".pred_class" = value)
+calibration_pred_dt_class_pca <- as_tibble(predict(dt_pca, cal_pca, type = "class")) %>%
+  rename(".pred_class" = value)
+
+train_pred_dt_pred_pca <- as_tibble(predict(dt_pca, train_pca, type = "prob")) %>%
+  rename(".pred_0" = `0`, ".pred_1" = `1`)
+calibration_pred_dt_pred_pca <- as_tibble(predict(dt_pca, cal_pca, type = "prob")) %>%
+  rename(".pred_0" = `0`, ".pred_1" = `1`)
+
+rpart.plot(dt_pca)
+```
+
+```{r}
+performance_dt_forward <- cal_scores(train_pca, train_pred_dt_class_pca, cal_pca, calibration_pred_dt_class_pca)
+print(performance_dt_forward$train)
+print(performance_dt_forward$calibration)
+```
+
+```{r, fig.width=10, fig.height=4}
+p1 <- plot_precision_recall_vs_threshold(train_pred_dt_pred_pca, train_pca, "Precision and Recall vs. Threshold, Train Set")
+p2 <- plot_precision_recall_vs_threshold(calibration_pred_dt_pred_pca, cal_pca, "Precision and Recall vs. Threshold, Cal Set")
+grid.arrange(p1, p2, ncol=2)
+```
+
+```{r, fig.width=8, fig.height=4}
+p1 <- plot_roc(train_pred_dt_pred_pca, train_pca)
+p2 <- plot_roc(calibration_pred_dt_pred_pca, cal_pca)
+grid.arrange(p1, p2, ncol=2)
+```
+
+```{r, fig.width=8, fig.height=4}
+p1 <- plot_con_matrix(train_pred_dt_class_pca, train_pca)
+p2 <- plot_con_matrix(calibration_pred_dt_class_pca, cal_pca)
+grid.arrange(p1, p2, ncol=2)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
