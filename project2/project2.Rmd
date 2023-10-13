@@ -96,6 +96,7 @@ library(parsnip)
 library(yardstick)
 library(rpart)
 library(rpart.plot)
+library(fpc)
 ```
 
 ```{r}
@@ -235,7 +236,7 @@ transform_cols <- function(df, features, trans) {
   } else if (trans == "norm") {
     # Applying z-normalization
     df <- df %>%
-      mutate(across(all_of(features), scale, .names = "{col}.norm"))
+      mutate(across(all_of(features), ~as.vector(scale(.)), .names = "{col}.norm"))
   }
   
   return(df)
@@ -259,23 +260,10 @@ The Global YouTube Statistics 2023 data set contains 995 observations for 28 var
 - 7 Character Variables: Characters represent text or strings of characters
 - 17 Numeric Variables: Represent real numbers, including integers & numbers with decimal points
 
-## Unique Observations 
-
-```{r}
-unique_counts <- sapply(youtube, function(x) length(unique(x)))
-unique_counts_df <- data.frame(Column_Name = names(unique_counts), Unique_Count = unique_counts)
-print(unique_counts_df)
-```
-
-The code above counts the number of unique rows in each feature of the data set. It can be observed that the features `rank`, `Youtuber` and `Title` have unique values in each row. When a feature has a unique value for each row, it means there is no discernible pattern or variation in that feature. Machine learning models rely on patterns and relationships in the data to make predictions. Therefore, including features that cannot contribute to learning these patterns would just introduce noise into any model that we attempt to fit to them. For this reason, these features will be dropped from the data set. 
-
-```{r}
-youtube <- subset(youtube, select = -c(rank, Youtuber, Title))
-```
 
 ## Data Correlation Matrix 
 
-```{r,fig.dim = c(15, 15)}
+```{r,fig.dim = c(9, 8)}
 plot_corr(youtube)
 ```
 
@@ -292,8 +280,10 @@ Examining the plot above, we can observe the following:
 - `Urban_population` is highly correlated with `Population`
 - `video_views_rank`, `country_rank` and `channel_type_rank` are highly correlated
 - `video.views` and `subscribers` are highly correlated
+- `video_views_for_the_last_30_days`, `lowest_monthly_earnings`, `highest_monthly_earnings`, `lowest_yearly_earnings` and `highest_yearly_earnings`
+- `subscribers_for_last_30_days`, `lowest_monthly_earnings`, `highest_monthly_earnings`, `lowest_yearly_earnings` and `highest_yearly_earnings`
 
-We will drop `Urban_population`, `country_rank` and `channel_type_rank` from the data set.
+We will drop `Urban_population`, `country_rank` and `channel_type_rank` from the data set. As they are highly correlated with other variables. However, we will leave dealing with `video_views_for_the_last_30_days` and `subscribers_for_last_30_days` as they are highly correlated with our target variable and need to be examined in greater detail. 
 
 ```{r}
 youtube <- subset(youtube, select=-c(`Urban_population`, `country_rank`, `channel_type_rank`))
@@ -345,6 +335,25 @@ youtube <- youtube %>%
 The following columns contain duplicate information and will be removed:
 ```{r}
 youtube <- subset(youtube, select = -c(category, Abbreviation))
+```
+
+## Unique Observations 
+
+```{r}
+unique_counts <- sapply(youtube, function(x) length(unique(x)))
+unique_counts_df <- data.frame(Column_Name = names(unique_counts), Unique_Count = unique_counts)
+print(unique_counts_df)
+```
+
+The code above counts the number of unique rows in each feature of the data set. It can be observed that the features `rank`, `Youtuber` and `Title` have unique values in each row. When a feature has a unique value for each row, it means there is no discernible pattern or variation in that feature. Machine learning models rely on patterns and relationships in the data to make predictions. Therefore, including features that cannot contribute to learning these patterns would just introduce noise into any model that we attempt to fit to them. For this reason, these features will be dropped from the data set. 
+
+```{r, echo=FALSE}
+names <- subset(youtube, select = c(rank, Youtuber, Title, Country, channel_type))
+```
+
+
+```{r}
+youtube <- subset(youtube, select = -c(rank, Youtuber, Title))
 ```
 
 ## Histograms of numeric variables
@@ -399,23 +408,25 @@ Z-normalization involves scaling the features such that they have a mean of zero
 
 Given the nature of the YouTube data set, we will choose earnings as the target variable to determine the success or failure of a YouTube channel. To facilitate the classification, we will formulate it as a binary classification problem (high-earning/low-earning) as multiclass classification is very difficult. 
 
-```{r, fig.width=10, fig.height=4}
+```{r, fig.width=10, fig.height=6}
 earnings_subset <- youtube[, c("lowest_monthly_earnings", 
   "highest_monthly_earnings", "lowest_yearly_earnings", 
-  "highest_yearly_earnings")]
+  "highest_yearly_earnings", "video_views_for_the_last_30_days", "subscribers_for_last_30_days")]
 
 ggpairs(earnings_subset) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 10), 
         axis.text.y = element_text(size = 10))
 ```
 
-The pairplot above shows the 4 different features that track the earnings of each YouTube channel. It can be observed that there ia a perfect positive linear relationship in each case and they all have a correlation of 1. It's worth noting that in real-world scenarios, having a correlation of exactly 1 between different variables is very rare, unless there is some deterministic relationship between them or they are different representations of the same underlying data.
+The pairplot above shows the 4 different features that track the earnings of each YouTube channel as well as `video_views_for_the_last_30_days` and `subscribers_for_last_30_days`. It can be observed that there is a perfect positive linear relationship in each case and the earnings features have a correlation of 1. It's worth noting that in real-world scenarios, having a correlation of exactly 1 between different variables is very rare, unless there is some deterministic relationship between them or they are different representations of the same underlying data. In this case, one possibility is that these variables were calculated from each other which is what gives us that perfect correlation.
 
 We will take an average of the highest and lowest yearly earnings to form a new feature that we will use as our target variable. There are several reasons to use the average of the highest and lowest yearly earnings:
 
 - Predicting the highest earnings may lead to over-optimistic predictions, influenced by extreme values or outliers. An average helps in reducing the influence of such extreme values.
 - High earnings may have high variability, and focusing solely on them may lead to instability in predictions. Averaging helps in mitigating this variability.
 - A model trained to predict average earnings tends to be more robust, as it learns the broader patterns in the data.
+
+Once this target variable is created, we will remove the original 6 highly correlated variables to prevent them from affecting the models too significantly. 
 
 ```{r, fig.width=10, fig.height=4}
 youtube <- youtube %>%
@@ -441,7 +452,6 @@ table(youtube$average_yearly_earnings.binary)
 ```
 ```{r}
 youtube$average_yearly_earnings.binary <- ifelse(youtube$average_yearly_earnings.log > 14.14, 1, 0)
-youtube <- subset(youtube, select=-c(average_yearly_earnings.log, highest_yearly_earnings.log, lowest_yearly_earnings.log, highest_monthly_earnings.log, lowest_monthly_earnings.log))
 table(youtube$average_yearly_earnings.binary)
 ```
 
@@ -452,12 +462,15 @@ Therefore, going forward we will use the median to split the target variable for
 ```{r}
 outcome <- "average_yearly_earnings.binary"
 pos <- 1
+
+# Remove highly correlated cols
+youtube <- subset(youtube, select=-c(average_yearly_earnings.log, highest_yearly_earnings.log, lowest_yearly_earnings.log, highest_monthly_earnings.log, lowest_monthly_earnings.log, video_views_for_the_last_30_days.log, subscribers_for_last_30_days.log))
 ```
 
 
 # Splitting the data
 
-We will use a 90/10 split for the data. Given that the data set is relatively small (1000 obvs), we allocate a larger proportion for training to ensure that the model has enough data to learn for. 
+We will use a 90/10 split for the data. Given that the data set is relatively small (1000 obvs), we allocate a larger proportion for training to ensure that the model has enough data to learn for. We will also not split the data into train, calibration and test, instead opting to just split the dataset into train and test. In practice, the validation set is used to provide an unbiased evaluation of a model fit on the training data and to tune hyperparameters. However, we can achieve a similar result with k-fold cross validation and have more data to use for training and testing.
 
 ```{r}
 # This function splits a dataframe into training and test sets given a particular ratio
@@ -485,11 +498,24 @@ youtube_cleaned <- bind_cols(youtube_cleaned, youtube[, c("average_yearly_earnin
 splits <- split_data(youtube_cleaned, "average_yearly_earnings.binary", train_ratio = 0.9)
 train_data <- splits$train
 test_data <- splits$test
-
-useForCal <- rbinom(n=dim(train_data)[[1]], size=1, prob=0.1) > 0
-cal_data <- subset(train_data, useForCal)
-train_data <- subset(train_data,!useForCal)
 ```
+
+```{r, echo=FALSE}
+# The most sketch shit ever
+deal_with_zeroes <- function(df){
+  if(any(is.na(df))) {
+    df[is.na(df)] <- 1e-6  # this is sketch af FIX THIS ASAP
+  }
+  cols_to_modify <- setdiff(names(df), "average_yearly_earnings.binary")
+
+  df[cols_to_modify] <- lapply(df[cols_to_modify], function(x) ifelse(x == 0, 1e-6, x))
+  return(df)
+}
+youtube_cleaned <- deal_with_zeroes(youtube_cleaned)
+train_data <- deal_with_zeroes(train_data)
+test_data <- deal_with_zeroes(test_data)
+```
+
 
 Split the data into categorical and numerical variables:
 
@@ -536,7 +562,6 @@ mkPredC <- function(outCol, varCol, appCol) {
 for (v in colnames(catVars)) {
   pi <- paste('pred', v, sep='')
   train_data[,pi] <- mkPredC(train_data[,outcome], train_data[,v], train_data[,v])
-  cal_data[,pi] <- mkPredC(cal_data[,outcome], cal_data[,v], cal_data[,v])
   test_data[,pi] <- mkPredC(test_data[,outcome], test_data[,v], test_data[,v])
 }
 ```
@@ -561,7 +586,6 @@ for (v in colnames(numVars)) {
   pi <- paste('pred', v, sep='')
   train_data[,pi] <- mkPredN(train_data[,outcome], train_data[,v], train_data[,v])
   test_data[,pi] <- mkPredN(test_data[,outcome], test_data[,v], test_data[,v])
-  cal_data[,pi] <- mkPredN(cal_data[,outcome], cal_data[,v], cal_data[,v])
 }
 ```
 
@@ -579,10 +603,9 @@ for(v in colnames(catVars)) {
   pii <- paste('pred',v,sep='')
   aucTrain <- calcAUC(train_data[,pii],train_data[,outcome])
 
-  aucCal <- calcAUC(cal_data[,pii],cal_data[,outcome])
   print(sprintf(
-    "%s, trainAUC: %4.3f calibrationAUC: %4.3f",
-    pii, aucTrain, aucCal))
+    "%s, trainAUC: %4.3f",
+    pii, aucTrain))
   
 }
 ```
@@ -592,15 +615,14 @@ for(v in colnames(numVars)) {
   aucTrain <- calcAUC(train_data[,pii],train_data[,outcome])
   
   if(aucTrain>=0.3) {
-    aucCal<-calcAUC(cal_data[,pii],cal_data[,outcome])
     print(sprintf(
-      "%s, trainAUC: %4.3f calibrationAUC: %4.3f",
-      pii,aucTrain,aucCal))
+      "%s, trainAUC: %4.3f",
+      pii,aucTrain))
   }
 }
 ```
 ```{r, fig.height=4}
-ggplot(data=cal_data) +
+ggplot(data=train_data) +
   geom_density(aes(x=uploads.log,color=as.factor(average_yearly_earnings.binary)))
 ```
 
@@ -615,8 +637,8 @@ logLikelihood <- function(ypred, ytrue) {
 Compute the log likelihood of the Null model
 
 ```{r}
-# Compute the likelihood of the Null model on the calibration set
-logNull <- logLikelihood(sum(cal_data[,outcome]==pos)/nrow(cal_data), cal_data[,outcome]==pos)
+# Compute the likelihood of the Null model on the train set
+logNull <- logLikelihood(sum(train_data[,outcome]==pos)/nrow(train_data), train_data[,outcome]==pos)
 
 cat("The log likelihood of the Null model is:", logNull)
 ```
@@ -629,7 +651,7 @@ minDrop <- 0  # may need to adjust this number
 
 for (v in colnames(catVars)) {
   pi <- paste('pred', v, sep='')
-  devDrop <- 2*(logLikelihood(cal_data[,pi], cal_data[,outcome]==pos) - logNull)
+  devDrop <- 2*(logLikelihood(train_data[,pi], train_data[,outcome]==pos) - logNull)
   if (devDrop >= minDrop) {
     cat(sprintf("%6s, deviance reduction: %g\n", v, devDrop))
     selCatVars <- c(selCatVars, pi)
@@ -644,7 +666,7 @@ selNumVars <- c()
 minDrop <- -10  # may need to adjust this number
 for (v in colnames(numVars)) {
   pi <- paste('pred', v, sep='')
-  devDrop <- 2*(logLikelihood(cal_data[,pi], cal_data[,outcome]==pos) - logNull)
+  devDrop <- 2*(logLikelihood(train_data[,pi], train_data[,outcome]==pos) - logNull)
   print(devDrop)
   if (devDrop >= minDrop) {
     cat(sprintf("%6s, deviance reduction: %g\n", v, devDrop))
@@ -709,36 +731,38 @@ forward_selection <- function(df, response) {
 ```
 
 
-```{r}
+```{r, echo=FALSE}
 clean_data <- function(df){
-  cols_to_keep <- !grepl("^pred", names(train_data))
-  df1 <- df[, cols_to_keep]
-  df1 <- subset(df1, select=-c(Country, channel_type, created_month))
-  if(any(is.na(df1))) {
-    df1[is.na(df1)] <- 0  # this is sketch af FIX THIS ASAP
-  }
+  df1 <- subset(df, select=-c(Country, channel_type, created_month))
+  df1 <- df1 %>%
+  rename(
+    Country = predCountry,
+    channel_type = predchannel_type,
+    created_month = predcreated_month
+  )
+  
+  cols_to_keep <- !grepl("^pred", names(df))
+  df1 <- df1[, cols_to_keep]
   return(df1)
 }
 
-train_clean <- clean_data(train_data)
-test_clean <- clean_data(test_data)
-cal_clean <- clean_data(cal_data)
-
-
-selected_features <- forward_selection(train_clean, "average_yearly_earnings.binary")
-print(selected_features)
+train_data <- clean_data(train_data)
+test_data <- clean_data(test_data)
+youtube_cleaned <- rbind(train_data, test_data)
 ```
 
 We will create new dataframes for the training, calibration and test sets based on the features from forward selection.
 
 ```{r}
-train_forward_sel <- subset(train_clean, select=c(selected_features))
-cal_forward_sel <- subset(cal_clean, select=c(selected_features))
-test_forward_sel <- subset(test_clean, select=c(selected_features))
+selected_features <- forward_selection(train_data, "average_yearly_earnings.binary")
+
+train_forward_sel <- subset(train_data, select=c(selected_features))
+test_forward_sel <- subset(test_data, select=c(selected_features))
 
 train_forward_sel$average_yearly_earnings.binary <- as.factor(train_data$average_yearly_earnings.binary)
-cal_forward_sel$average_yearly_earnings.binary <- as.factor(cal_data$average_yearly_earnings.binary)
 test_forward_sel$average_yearly_earnings.binary <- as.factor(test_data$average_yearly_earnings.binary)
+
+print(selected_features)
 ```
 
 
@@ -750,14 +774,14 @@ Principal Component Analysis (PCA) is one such dimensionality reduction techniqu
 
 ```{r}
 # Perform PCA
-pca <- prcomp(subset(train_clean, select=-c(average_yearly_earnings.binary)), center = TRUE, scale. = TRUE, rank. = 2)
+pca <- prcomp(subset(train_data, select=-c(average_yearly_earnings.binary)), center = TRUE, scale. = TRUE, rank. = 2)
 
 # Get the explained variance ratio
 explained_variance_ratio <- pca$sdev^2 / sum(pca$sdev^2)
 
 # Convert principal components and cn_train_y into a data frame for ggplot
 df_pca <- as.data.frame(pca$x)
-df_pca$class <- as.factor(train_clean$average_yearly_earnings.binary)
+df_pca$class <- as.factor(train_data$average_yearly_earnings.binary)
 
 # Create a scatter plot with different colors for the two classes using ggplot2
 ggplot(df_pca, aes(x = PC1, y = PC2, color = class)) +
@@ -784,7 +808,7 @@ The first principal component captures a significant portion of the variance, in
 ```{r}
 # Convert the principal components and labels into a data frame
 df_pca <- as.data.frame(pca$x)
-df_pca$class <- as.factor(train_clean$average_yearly_earnings.binary)
+df_pca$class <- as.factor(train_data$average_yearly_earnings.binary)
 
 # Get the variable vectors (loadings)
 variable_vectors <- pca$rotation[, 1:2]
@@ -801,7 +825,7 @@ p <- ggplot(df_pca, aes(x = PC1, y = PC2, color = class)) +
 variable_vectors_df <- as.data.frame(variable_vectors)
 variable_vectors_df$label <- rownames(variable_vectors)
 
-multiplier <- 3
+multiplier <- 2
 
 p <- p + 
      geom_segment(data = variable_vectors_df, 
@@ -834,7 +858,7 @@ The plot above shows the biplot of the data on the first two principal component
 
 ```{r, fig.height=4}
 # Compute the PCA without limiting to 2 PC
-pca <- prcomp(train_clean, center = TRUE, scale. = TRUE)
+pca <- prcomp(train_data, center = TRUE, scale. = TRUE)
 explained_variance_ratio <- pca$sdev^2 / sum(pca$sdev^2)
 cumulative_variance <- cumsum(explained_variance_ratio)
 num_components <- which(cumulative_variance >= 0.95)[1]
@@ -878,11 +902,9 @@ transform_data <- function(data, pca, num_components) {
 
 
 train_pca <- as.data.frame(pca$x[, 1:num_components])
-cal_pca <- transform_data(cal_clean, pca, num_components)
-test_pca <- transform_data(test_clean, pca, num_components)
+test_pca <- transform_data(test_data, pca, num_components)
 
 train_pca$average_yearly_earnings.binary <- as.factor(train_data$average_yearly_earnings.binary)
-cal_pca$average_yearly_earnings.binary <- as.factor(cal_data$average_yearly_earnings.binary)
 test_pca$average_yearly_earnings.binary <- as.factor(test_data$average_yearly_earnings.binary)
 ```
 
@@ -1014,52 +1036,64 @@ Logistic regression aims to find the best possible fit between the selected feat
 The following function returns a logistic regression model given a set of inputs, we will use this to test the various inputs given the two feature selection strategies, forward selection and PCA. The model uses lasso regression and the glmnet engine which allows us to set a penalty value. The strength of this penalty value can be tuned to give us optimal results. 
 
 ```{r}
+# Train a logistic regression model using glm and 10 fold cross validation
 train_log_reg <- function(df) {
-  # Train a logistic regression model
-  model <- logistic_reg(mixture = double(1), penalty = double(1)) %>%
-    set_engine("glmnet") %>%
-    set_mode("classification") %>%
-    fit(average_yearly_earnings.binary ~ ., data = df)
-  
+  trControl <- trainControl(method = "cv", number = 10)
+  model <- train(
+    average_yearly_earnings.binary ~ ., 
+    data = df, 
+    method = "glm", 
+    family = "binomial", 
+    trControl = trControl
+  )
   return(model)
 }
 ```
 
 ## Logistic Regression with Forward Selection Features
 
+
+
 ```{r}
 log_reg_forward <- train_log_reg(train_forward_sel)
-tidy(log_reg_forward)
+print(log_reg_forward)
 
-train_pred_log_reg_class <- predict(log_reg_forward, train_forward_sel, type = "class")
-calibration_pred_log_reg_class <- predict(log_reg_forward, cal_forward_sel, type = "class")
 
-train_pred_log_reg_pred <- predict(log_reg_forward, train_forward_sel, type = "prob")
-calibration_pred_log_reg_pred <- predict(log_reg_forward, cal_forward_sel, type = "prob")
+train_pred_logreg <- as_tibble(predict(log_reg_forward, newdata = train_forward_sel, type = "prob")) %>%
+  mutate(".pred_1" = `1`)
+
+test_pred_logreg <- as_tibble(predict(log_reg_forward, newdata = test_forward_sel, type = "prob")) %>%
+  mutate(".pred_1" = `1`)
+
+train_class_logreg <- as_tibble(ifelse(train_pred_logreg$.pred_1 > 0.5, 1, 0)) %>%
+  mutate(".pred_class" = as.factor(value))
+
+test_class_logreg <- as_tibble(ifelse(test_pred_logreg$.pred_1 > 0.5, 1, 0)) %>%
+  mutate(".pred_class" = as.factor(value))
 ```
 
 ```{r}
-performance_log_reg_forward_sel <- cal_scores(train_forward_sel, train_pred_log_reg_class, cal_forward_sel, calibration_pred_log_reg_class)
+performance_log_reg_forward_sel <- cal_scores(train_forward_sel, train_class_logreg , test_forward_sel, test_class_logreg)
 print(performance_log_reg_forward_sel$train)
 print(performance_log_reg_forward_sel$calibration)
 ```
 
 
 ```{r, fig.width=10, fig.height=4}
-p1 <- plot_precision_recall_vs_threshold(train_pred_log_reg_pred, train_forward_sel, "Precision and Recall vs. Threshold, Train Set")
-p2 <- plot_precision_recall_vs_threshold(calibration_pred_log_reg_pred, cal_forward_sel, "Precision and Recall vs. Threshold, Cal Set")
+p1 <- plot_precision_recall_vs_threshold(train_pred_logreg, train_forward_sel, "Precision and Recall vs. Threshold, Train Set")
+p2 <- plot_precision_recall_vs_threshold(test_pred_logreg, test_forward_sel, "Precision and Recall vs. Threshold, Test Set")
 grid.arrange(p1, p2, ncol=2)
 ```
 
 ```{r, fig.width=8, fig.height=4}
-p1 <- plot_roc(train_pred_log_reg_pred, train_forward_sel)
-p2 <- plot_roc(calibration_pred_log_reg_pred, cal_forward_sel)
+p1 <- plot_roc(train_pred_logreg, train_forward_sel)
+p2 <- plot_roc(test_pred_logreg, test_forward_sel)
 grid.arrange(p1, p2, ncol=2)
 ```
 
 ```{r, fig.width=8, fig.height=4}
-p1 <- plot_con_matrix(train_pred_log_reg_class, train_forward_sel)
-p2 <- plot_con_matrix(calibration_pred_log_reg_class, cal_forward_sel)
+p1 <- plot_con_matrix(train_class_logreg, train_forward_sel)
+p2 <- plot_con_matrix(test_class_logreg, test_forward_sel)
 grid.arrange(p1, p2, ncol=2)
 ```
 
@@ -1068,36 +1102,42 @@ grid.arrange(p1, p2, ncol=2)
 
 ```{r}
 log_reg_pca <- train_log_reg(train_pca)
-tidy(log_reg_pca)
+print(log_reg_pca)
 
-train_pred_pca_class <- predict(log_reg_pca, train_pca, type = "class")
-calibration_pred_pca_class <- predict(log_reg_pca, cal_pca, type = "class")
+train_pred_pca <- as_tibble(predict(log_reg_pca, train_pca, type = "prob")) %>%
+  mutate(".pred_1" = `1`)
 
-train_pred_log_reg_pred <- predict(log_reg_pca, train_pca, type = "prob")
-calibration_pred_log_reg_pred <- predict(log_reg_pca, cal_pca, type = "prob")
+test_pred_pca <- as_tibble(predict(log_reg_pca, test_pca, type = "prob")) %>%
+  mutate(".pred_1" = `1`)
+
+train_class_pca <- as_tibble(ifelse(train_pred_pca$.pred_1 > 0.5, 1, 0)) %>%
+  mutate(".pred_class" = as.factor(value))
+
+test_class_pca <- as_tibble(ifelse(test_pred_pca$.pred_1 > 0.5, 1, 0)) %>%
+  mutate(".pred_class" = as.factor(value))
 ```
 
 ```{r}
-performance_log_reg_pca <- cal_scores(train_pca, train_pred_pca_class, cal_pca, calibration_pred_pca_class)
+performance_log_reg_pca <- cal_scores(train_pca, train_class_pca, test_pca, test_class_pca)
 print(performance_log_reg_pca$train)
 print(performance_log_reg_pca$calibration)
 ```
 
 ```{r, fig.width=10, fig.height=4}
-p1 <- plot_precision_recall_vs_threshold(train_pred_log_reg_pred, train_pca, "Precision and Recall vs. Threshold, Train Set")
-p2 <- plot_precision_recall_vs_threshold(calibration_pred_log_reg_pred, cal_pca, "Precision and Recall vs. Threshold, Cal Set")
+p1 <- plot_precision_recall_vs_threshold(train_pred_pca, train_pca, "Precision and Recall vs. Threshold, Train Set")
+p2 <- plot_precision_recall_vs_threshold(test_pred_pca , test_pca, "Precision and Recall vs. Threshold, Cal Set")
 grid.arrange(p1, p2, ncol=2)
 ```
 
 ```{r, fig.width=8, fig.height=4}
-p1 <- plot_roc(train_pred_log_reg_pred, train_pca)
-p2 <- plot_roc(calibration_pred_log_reg_pred, cal_pca)
+p1 <- plot_roc(train_pred_pca, train_pca)
+p2 <- plot_roc(test_pred_pca, test_pca)
 grid.arrange(p1, p2, ncol=2)
 ```
 
 ```{r, fig.width=8, fig.height=4}
-p1 <- plot_con_matrix(train_pred_pca_class, train_pca)
-p2 <- plot_con_matrix(calibration_pred_pca_class, cal_pca)
+p1 <- plot_con_matrix(train_class_pca, train_pca)
+p2 <- plot_con_matrix(test_class_pca, test_pca)
 grid.arrange(p1, p2, ncol=2)
 ```
 
@@ -1107,10 +1147,14 @@ Decision trees are another model type that makes predictions that are piecewise 
 
 ```{r}
 train_dt <- function(df) {
-  # Train a decision tree
-  model <- rpart(formula=average_yearly_earnings.binary ~ ., data = df)
-  
-  return(model)
+  trControl <- trainControl(method = "cv", number = 10)
+  dt_forward_cv <- train(
+    average_yearly_earnings.binary ~ ., 
+    data = df, 
+    method = "rpart", 
+    trControl = trControl
+  )
+  return(dt_forward_cv)
 }
 ```
 
@@ -1118,41 +1162,42 @@ train_dt <- function(df) {
 
 ```{r, fig.height=4, fig.width=4}
 dt_forward <- train_dt(train_forward_sel)
+print(dt_forward)
 
-train_pred_dt_class <- as_tibble(predict(dt_forward, train_forward_sel, type = "class")) %>%
+train_class_dt <- as_tibble(predict(dt_forward, newdata = train_forward_sel, type = "raw")) %>%
   rename(".pred_class" = value)
-calibration_pred_dt_class <- as_tibble(predict(dt_forward, cal_forward_sel, type = "class")) %>%
+test_class_dt <- as_tibble(predict(dt_forward, newdata = test_forward_sel, type = "raw")) %>%
   rename(".pred_class" = value)
 
-train_pred_dt_pred <- as_tibble(predict(dt_forward, train_forward_sel, type = "prob")) %>%
+train_pred_dt <- as_tibble(predict(dt_forward, newdata = train_forward_sel, type = "prob")) %>%
   rename(".pred_0" = `0`, ".pred_1" = `1`)
-calibration_pred_dt_pred <- as_tibble(predict(dt_forward, cal_forward_sel, type = "prob")) %>%
+test_pred_dt <- as_tibble(predict(dt_forward, newdata = test_forward_sel, type = "prob")) %>%
   rename(".pred_0" = `0`, ".pred_1" = `1`)
 
-rpart.plot(dt_forward)
+rpart.plot(dt_forward$finalModel)
 ```
 
 ```{r}
-performance_dt_forward <- cal_scores(train_forward_sel, train_pred_dt_class, cal_forward_sel, calibration_pred_dt_class)
+performance_dt_forward <- cal_scores(train_forward_sel, train_class_dt, test_forward_sel, test_class_dt)
 print(performance_dt_forward$train)
 print(performance_dt_forward$calibration)
 ```
 
 ```{r, fig.width=10, fig.height=4}
-p1 <- plot_precision_recall_vs_threshold(train_pred_dt_pred, train_forward_sel, "Precision and Recall vs. Threshold, Train Set")
-p2 <- plot_precision_recall_vs_threshold(calibration_pred_dt_pred, cal_forward_sel, "Precision and Recall vs. Threshold, Cal Set")
+p1 <- plot_precision_recall_vs_threshold(train_pred_dt, train_forward_sel, "Precision and Recall vs. Threshold, Train Set")
+p2 <- plot_precision_recall_vs_threshold(test_pred_dt, test_forward_sel, "Precision and Recall vs. Threshold, Cal Set")
 grid.arrange(p1, p2, ncol=2)
 ```
 
 ```{r, fig.width=8, fig.height=4}
-p1 <- plot_roc(train_pred_dt_pred, train_forward_sel)
-p2 <- plot_roc(calibration_pred_dt_pred, cal_forward_sel)
+p1 <- plot_roc(train_pred_dt, train_forward_sel)
+p2 <- plot_roc(test_pred_dt, test_forward_sel)
 grid.arrange(p1, p2, ncol=2)
 ```
 
 ```{r, fig.width=8, fig.height=4}
-p1 <- plot_con_matrix(train_pred_dt_class, train_forward_sel)
-p2 <- plot_con_matrix(calibration_pred_dt_class, cal_forward_sel)
+p1 <- plot_con_matrix(train_class_dt, train_forward_sel)
+p2 <- plot_con_matrix(test_class_dt, test_forward_sel)
 grid.arrange(p1, p2, ncol=2)
 ```
 
@@ -1160,61 +1205,288 @@ grid.arrange(p1, p2, ncol=2)
 
 ```{r, fig.height=4, fig.width=4}
 dt_pca <- train_dt(train_pca)
+print(dt_pca)
 
-train_pred_dt_class_pca <- as_tibble(predict(dt_pca, train_pca, type = "class")) %>%
+train_class_dt <- as_tibble(predict(dt_pca, newdata = train_pca, type = "raw")) %>%
   rename(".pred_class" = value)
-calibration_pred_dt_class_pca <- as_tibble(predict(dt_pca, cal_pca, type = "class")) %>%
+test_class_dt <- as_tibble(predict(dt_pca, newdata = test_pca, type = "raw")) %>%
   rename(".pred_class" = value)
 
-train_pred_dt_pred_pca <- as_tibble(predict(dt_pca, train_pca, type = "prob")) %>%
+train_pred_dt <- as_tibble(predict(dt_pca, newdata = train_pca, type = "prob")) %>%
   rename(".pred_0" = `0`, ".pred_1" = `1`)
-calibration_pred_dt_pred_pca <- as_tibble(predict(dt_pca, cal_pca, type = "prob")) %>%
+test_pred_dt <- as_tibble(predict(dt_pca, newdata = test_pca, type = "prob")) %>%
   rename(".pred_0" = `0`, ".pred_1" = `1`)
 
-rpart.plot(dt_pca)
+rpart.plot(dt_pca$finalModel)
 ```
 
 ```{r}
-performance_dt_forward <- cal_scores(train_pca, train_pred_dt_class_pca, cal_pca, calibration_pred_dt_class_pca)
+performance_dt_forward <- cal_scores(train_pca, train_class_dt, test_pca, test_class_dt)
 print(performance_dt_forward$train)
 print(performance_dt_forward$calibration)
 ```
 
 ```{r, fig.width=10, fig.height=4}
-p1 <- plot_precision_recall_vs_threshold(train_pred_dt_pred_pca, train_pca, "Precision and Recall vs. Threshold, Train Set")
-p2 <- plot_precision_recall_vs_threshold(calibration_pred_dt_pred_pca, cal_pca, "Precision and Recall vs. Threshold, Cal Set")
+p1 <- plot_precision_recall_vs_threshold(train_pred_dt, train_pca, "Precision and Recall vs. Threshold, Train Set")
+p2 <- plot_precision_recall_vs_threshold(test_pred_dt , test_pca, "Precision and Recall vs. Threshold, Cal Set")
 grid.arrange(p1, p2, ncol=2)
 ```
 
 ```{r, fig.width=8, fig.height=4}
-p1 <- plot_roc(train_pred_dt_pred_pca, train_pca)
-p2 <- plot_roc(calibration_pred_dt_pred_pca, cal_pca)
+p1 <- plot_roc(train_pred_dt, train_pca)
+p2 <- plot_roc(test_pred_dt, test_pca)
 grid.arrange(p1, p2, ncol=2)
 ```
 
 ```{r, fig.width=8, fig.height=4}
-p1 <- plot_con_matrix(train_pred_dt_class_pca, train_pca)
-p2 <- plot_con_matrix(calibration_pred_dt_class_pca, cal_pca)
+p1 <- plot_con_matrix(train_class_dt, train_pca)
+p2 <- plot_con_matrix(test_class_dt, test_pca)
 grid.arrange(p1, p2, ncol=2)
 ```
 
+# Clustering
+
+- scale all cols to have a mean value of 0 and std dev of 1
+- compute pairwise distances using dist()
+- clustering using hclust()
+- extract members of each cluster using cutree()
+- Intepret grouping (talk bullshit)
+- visualize clusters
+- use clusterboot() to analyze clusters
+- Find number of clusters k CH and WSS index
+
+## Data preparation
+
+We will be using the cleaned dataset and removing the target variable for clustering. We will also scale the data to have a mean value of 0 and a standard deviation of 1. This makes use of the `transform_cols()` function that was defined at the beginning of this document. 
+
+```{r, echo=FALSE}
+# sketch
+colnames(youtube_cleaned) <- sub("\\.log$", "", colnames(youtube_cleaned))
+```
 
 
+```{r}
+youtube_clustering <- subset(youtube_cleaned, select=-c(average_yearly_earnings.binary))
+youtube_clustering <- transform_cols(youtube_clustering, colnames(youtube_clustering), "norm")
+```
 
+```{r, echo=FALSE}
+# sketch
+youtube_clustering <- youtube_clustering[, grep("\\.norm$", colnames(youtube_clustering))]
+colnames(youtube_clustering) <- sub("\\.norm$", "", colnames(youtube_clustering))
+```
 
+## Hierarchical Clustering 
 
+We will first compute distance between all pairs of points in the data using the euclidean distance.
 
+```{r}
+d <- dist(youtube_clustering, method="manhattan")
+```
 
+We will perform clustering using hclust()
 
+```{r, fig.height=15, fig.width=20}
+pfit <- hclust(d, method="ward.D2") 
+plot(pfit, main="Cluster Dendrogram for Youtube Channels", labels=names$Youtuber)
+rect.hclust(pfit, k=3) 
 
+```
 
+**Dendrogram**
 
+- Each leaf node represents a Youtuber, in the diagram above, they are labelled but it is very difficult to intepret due to the sheer density of the data points. 
 
+- Instances at the bottom of the dendrogram are more similar than those higher up
 
+- For any two instances, we can measure the height of the fusion on the vertical axis to see how different the two instances are. The greater the height, the greater the difference.
 
+- From the dendrogram, we can see 3 distinct clusters form rather than the 2 from the classification task in the previous section. 
 
+- The tree is highly unbalanced, with cluster 1 being much smaller than cluster 3.  
 
+### Extracting members using cutree()
 
+cutree() takes in a clustering model (e.g., created by hclust()) and returns a vector (or matrix) of cluster group assignment(s) for each row
+
+```{r}
+plot_instances <- function(df, x_col, group_vec) {
+  
+  # Check if x_col exists in df
+  if (!x_col %in% colnames(df)) {
+    stop("The specified x_col does not exist in the dataframe")
+  }
+  df$Group <- group_vec
+  
+  agg_data <- df %>%
+    group_by(!!sym(x_col), Group) %>%
+    summarise(Count = n()) %>%
+    ungroup()
+  
+  agg_data <- agg_data %>%
+    arrange(Count) %>%
+    mutate(!!sym(x_col) := factor(!!sym(x_col), levels = unique(!!sym(x_col))))
+  
+  # Plotting
+  p <- ggplot(agg_data, aes_string(y = x_col, x = "Count", fill = "as.factor(Group)")) +
+    geom_bar(stat = "identity", position = "stack") +
+    labs(title = paste0("Number of Instances by ", x_col, " and Group"),
+         x = "Number of Instances",
+         y = x_col,
+         fill = "Group") +
+    theme_minimal() +
+    theme(axis.text.y = element_text(hjust = 1))
+  
+  return(p)
+}
+```
+
+```{r}
+groups <- cutree(pfit, k=3)
+plot_instances(names, "Country", groups)
+```
+
+```{r}
+plot_instances(names, "channel_type", groups)
+```
+
+### Visualising Clusters
+
+```{r}
+princ <- prcomp(youtube_clustering)
+nComp <- 2
+project2D <- as.data.frame(predict(princ, newdata=youtube_clustering)[,1:nComp])
+hclust.project2D <- cbind(project2D, cluster=as.factor(groups), country=names$Country)
+head(hclust.project2D)
+
+```
+
+```{r}
+library('grDevices')
+find_convex_hull <- function(proj2Ddf, groups) {
+  do.call(rbind,
+    lapply(unique(groups),
+      FUN = function(c) {
+        f <- subset(proj2Ddf, cluster==c);
+        f[chull(f),]
+      }
+    )
+  )
+}
+hclust.hull <- find_convex_hull(hclust.project2D, groups)
+```
+
+```{r, fig.width=8, fig.height=4}
+ggplot(hclust.project2D, aes(x=PC1, y=PC2)) +
+geom_point(aes(shape=cluster, color=cluster)) +
+geom_text(aes(label=country, color=cluster), hjust=0, vjust=1, size=3) +
+geom_polygon(data=hclust.hull, aes(group=cluster, fill=as.factor(cluster)),
+alpha=0.4, linetype=0) + theme(text=element_text(size=8))
+
+```
+
+### Using clusterboot() to assess stability
+
+```{r, results='hide'}
+kbest.p <- 3
+cboot.hclust <- clusterboot(youtube_clustering, clustermethod=hclustCBI,
+method="ward.D2", k=kbest.p)
+
+```
+
+```{r}
+summary(cboot.hclust$result)
+
+```
+```{r}
+groups.cboot <- cboot.hclust$result$partition
+values <- 1 - cboot.hclust$bootbrd/100
+```
+
+### Finding the value of k
+
+```{r}
+# Function to return the squared Euclidean distance of two given points x and y
+sqr_euDist <- function(x, y) {
+  sum((x - y)^2)
+}
+
+# Function to calculate WSS of a cluster, represented as a n-by-d matrix
+# (where n and d are the numbers of rows and columns of the matrix)
+# which contains only points of the cluster.
+wss <- function(clustermat) {
+  c0 <- colMeans(clustermat)
+  sum(apply( clustermat, 1, FUN=function(row) {sqr_euDist(row, c0)} ))
+}
+
+# Function to calculate the total WSS. Argument `scaled_df`: data frame
+# with normalised numerical columns. Argument `labels`: vector containing
+# the cluster ID (starting at 1) for each row of the data frame.
+wss_total <- function(scaled_df, labels) {
+  wss.sum <- 0
+  k <- length(unique(labels))
+  for (i in 1:k)
+      wss.sum <- wss.sum + wss(subset(scaled_df, labels == i))
+  wss.sum
+}
+
+# Function to calculate total sum of squared (TSS) distance of data
+# points about the (global) mean. This is the same as WSS when the
+# number of clusters (k) is 1.
+tss <- function(scaled_df) {
+  wss(scaled_df)
+}
+
+# Function to return the CH indices computed using hierarchical
+# clustering (function `hclust`) or k-means clustering (`kmeans`)
+# for a vector of k values ranging from 1 to kmax.
+CH_index <- function(scaled_df, kmax, method="kmeans") {
+  if (!(method %in% c("kmeans", "hclust")))
+    stop("method must be one of c('kmeans', 'hclust')")
+  npts <- nrow(scaled_df)
+  wss.value <- numeric(kmax) # create a vector of numeric type
+  # wss.value[1] stores the WSS value for k=1 (when all the
+  # data points form 1 large cluster).
+  wss.value[1] <- wss(scaled_df)
+  
+  if (method == "kmeans") {
+    # kmeans
+    for (k in 2:kmax) {
+    clustering <- kmeans(scaled_df, k, nstart=10, iter.max=100)
+    wss.value[k] <- clustering$tot.withinss
+    }
+  } else {
+    # hclust
+    d <- dist(scaled_df, method="euclidean")
+    pfit <- hclust(d, method="ward.D2")
+    for (k in 2:kmax) {
+      labels <- cutree(pfit, k=k)
+      wss.value[k] <- wss_total(scaled_df, labels)
+    }
+  }
+  bss.value <- tss(scaled_df) - wss.value # this is a vector
+  B <- bss.value / (0:(kmax-1)) # also a vector
+  W <- wss.value / (npts - 1:kmax) # also a vector
+  data.frame(k = 1:kmax, CH_index = B/W, WSS = wss.value)
+}
+```
+
+```{r, fig.width=10, fig.height=4}
+# calculate the CH criterion
+crit.df <- CH_index(youtube_clustering, 10, method="hclust")
+
+fig1 <- ggplot(crit.df, aes(x=k, y=CH_index)) +
+  geom_point() + geom_line(colour="red") +
+  scale_x_continuous(breaks=1:10, labels=1:10) +
+  labs(y="CH index") + theme(text=element_text(size=8))
+
+fig2 <- ggplot(crit.df, aes(x=k, y=WSS), color="blue") +
+  geom_point() + geom_line(colour="blue") +
+  scale_x_continuous(breaks=1:10, labels=1:10) +
+  theme(text=element_text(size=8))
+
+grid.arrange(fig1, fig2, nrow=1)
+```
 
 
 
