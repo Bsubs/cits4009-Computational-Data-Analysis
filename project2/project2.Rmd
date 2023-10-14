@@ -68,9 +68,11 @@ https://www.kaggle.com/datasets/nelgiriyewithana/global-youtube-statistics-2023
 
 This dataset contains various information about the top YouTube channels on the platform with the most subscribers. The data set contains information about their subscriber counts, video views, earnings and demographics.
 
-The modelling process explored to preduct **REPLACE ONCE WE KNOW WHAT TO PREDICT** is documented below in terms of code and comments. The plots 
+The modelling process explored to predict high/low earnings is documented below in terms of code and comments.  
 
 # Data loading, and set up
+
+Load the necessary libraries for data preparation, classification and clustering.
 
 ```{r, message=FALSE, warning=FALSE}
 library(ggplot2)
@@ -99,14 +101,20 @@ library(rpart.plot)
 library(fpc)
 ```
 
+Read the YouTube dataset.
+
 ```{r}
 path <- './data/youtube_UTF_8.csv'
 youtube <- read.csv(path)
 ```
 
-# Functions
+# Data Preparation
 
-This section contains all function used in this modelling exercise. 
+## Functions
+
+This section contains all function used in the data preparation phase for this modelling exercise.
+
+This function plots a correlation matrix for each numerical value in a given a dataframe. In addition to the color gradient, The function will display any correlation above 0.6 on the matrix to highlight to the user where the highly correlated values are in this dataset.
 
 ```{r}
 # This function plots a correlation matrix for each numerical value in a given a dataframe
@@ -144,6 +152,8 @@ plot_corr <- function(df) {
   print(heatmap_plot)
 }
 ```
+
+This function plots a histogram for each numerical value in a given dataframe. The function also allows us to select what type of variables we want to see which is very useful when exploring different feature combinations and attribute scaling methods. 
 
 ```{r}
 # This function plots a histogram for each numerical value in a given dataframe
@@ -191,6 +201,8 @@ plot_hist <- function(df, ncols, var.type){
 
 ```
 
+This function plots the histogram of an given variable and also shows the location of the mean and median.
+
 ```{r}
 plot_individual_hist <- function(df, feature, title1, plot.mean) {
   mean_val <- mean(df[,feature], na.rm = TRUE)
@@ -207,19 +219,23 @@ plot_individual_hist <- function(df, feature, title1, plot.mean) {
     p <- p +
       geom_vline(aes(xintercept = mean_val), color = "red", linetype = "dashed", size = 1) +
       geom_vline(aes(xintercept = median_val), color = "blue", linetype = "dashed", size = 1) +
-      annotate("text", x = mean_val, y = Inf, label = sprintf("Mean = %.2f", mean_val), vjust = 2, hjust = 1.1, color = "red", size = 3.5) +
-      annotate("text", x = median_val, y = Inf, label = sprintf("Median = %.2f", median_val), vjust = 2, hjust = -0.1, color = "blue", size = 3.5) 
+      annotate("text", x = mean_val, y = Inf, label = sprintf("Mean = %.2f", mean_val), vjust = 3, hjust = 3, color = "red", size = 3.5) +
+      annotate("text", x = median_val, y = Inf, label = sprintf("Median = %.2f", median_val), vjust = 5, hjust = 3, color = "blue", size = 3.5) 
   }
   
   return(p)
 }
 ```
 
-
-```{r}
+```{r, echo=FALSE}
 minmax_scale <- function(x) {
   return ((x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE)))
 }
+```
+
+This function performs feature transformation on a given dataframe. We have the option to choose between log transformation, min-max scaling and z-normalization. 
+
+```{r}
 # This function transforms the data 
 # @param df the dataframe to transform
 # @param features the features to transform
@@ -243,13 +259,7 @@ transform_cols <- function(df, features, trans) {
 }
 ```
 
-```{r}
-# This function implements a NULL model for a given set of data 
-# @param features The feature columns
-# @param target The target variable
-```
-
-# Data Preparation
+## Inspecting the data
 
 ```{r, results='hide'}
 str(youtube)
@@ -272,7 +282,7 @@ When investigating if some features can be dropped due to a linear relationship,
 Therefore, we can plot a correlation matrix. The correlation value between a pair of features measures the degree of the linear relationship that they have. If the two features have a high correlation score (approaching 1) it means that they are linear and measure the same variable. Having too many highly correlated variables may present problems in the following ways:
 
 - **Over fitting**: The model may make splits based on a small number of highly correlated features. This may cause over fitting problems.
-- **Redundancy**: As seen in section 1.2.1 removing highly correlated features only gives a small drop in accuracy while providing a significant increase in performance. This is because highly correlated features provide very little additional benefits in classification while adding unecessary complexity.
+- **Redundancy**: Removing highly correlated features only gives a small drop in accuracy while providing a significant increase in performance. This is because highly correlated features provide very little additional benefits in classification while adding unecessary complexity.
 - **Improved Model Performance**: In some cases, removing highly correlated features can actually improve the performance of the model. When features are highly correlated, they can lead to multicollinearity, which can make it difficult for the model to estimate the individual effects of each feature on the target variable.
 
 Examining the plot above, we can observe the following:
@@ -339,7 +349,7 @@ youtube <- subset(youtube, select = -c(category, Abbreviation))
 
 ## Unique Observations 
 
-```{r}
+```{r, results="hide"}
 unique_counts <- sapply(youtube, function(x) length(unique(x)))
 unique_counts_df <- data.frame(Column_Name = names(unique_counts), Unique_Count = unique_counts)
 print(unique_counts_df)
@@ -386,6 +396,8 @@ youtube <- transform_cols(youtube, colnames(youtube)[sapply(youtube, is.numeric)
 plot_hist(youtube, 3, "log")
 ```
 
+A log transform is the most effect method for dealing with the right skewed data. Many statistical techniques and machine learning algorithms assume that data follows a normal (or Gaussian) distribution. Right-skewed data doesn't meet this assumption. Applying a log transformation can help in making the data look more like a normal distribution. However, from our examinations of the data in the earlier parts of this document, we understand that many variables do have 0s in them and the logarithm of zero and negative numbers is undefined in the real number system. Therefore, the scaling function adds a small constant of `1e-6` to these values to avoid any infinite values in the transformed dataset. 
+
 ### Min-Max scaling
 
 ```{r, fig.width=10, fig.height=7}
@@ -393,7 +405,7 @@ youtube <- transform_cols(youtube, cols_to_transform,"minmax")
 plot_hist(youtube, 3, "minmax")
 ```
 
-The min-max scaler transforms the data to be within a given range which is very useful when dealing with data that has vastly different scales like the YouTube data set. In this case, the range chosen was [0,1]. However, just like z-normalization, min-max scaling is highly sensitive to outliers. Given the highly skewed distribution with a very long tail, min-max scaling will compress the majority of the scaled data into a small interval.
+The min-max scaler transforms the data to be within a given range which is very useful when dealing with data that has vastly different scales like the YouTube data set. In this case, the range chosen was [0,1]. However, just like z-normalization, min-max scaling is highly sensitive to outliers. Given the highly skewed distribution with a very long tail, min-max scaling will compress the majority of the scaled data into a small interval which is not helpful when trying to deal with a skewed distribution. 
 
 ### Z-score normalization
 
@@ -426,7 +438,7 @@ We will take an average of the highest and lowest yearly earnings to form a new 
 - High earnings may have high variability, and focusing solely on them may lead to instability in predictions. Averaging helps in mitigating this variability.
 - A model trained to predict average earnings tends to be more robust, as it learns the broader patterns in the data.
 
-Once this target variable is created, we will remove the original 6 highly correlated variables to prevent them from affecting the models too significantly. 
+Once this target variable is created, we will remove the original 6 highly correlated variables to prevent them from affecting the training of the model. 
 
 ```{r, fig.width=10, fig.height=4}
 youtube <- youtube %>%
@@ -488,9 +500,6 @@ split_data <- function(df, feature, train_ratio = 0.9) {
   list(train = train_set, test = test_set)
 }
 
-
-```
-```{r}
 # Retain only the log transformed variables
 youtube_cleaned <- youtube[, grepl("\\.log$", names(youtube))]
 youtube_cleaned <- bind_cols(youtube_cleaned, youtube[, c("average_yearly_earnings.binary", "Country", "channel_type", "created_month")])
@@ -533,9 +542,6 @@ separate_vars <- function(df) {
   return(list(numVars = numVars, catVars = catVars))
 }
 
-```
-
-```{r}
 sep_train <- separate_vars(train_data)
 numVars <- sep_train$numVars
 catVars <- sep_train$catVars
@@ -591,6 +597,8 @@ for (v in colnames(numVars)) {
 
 ## Evaulating Single Variable Models using AUC
 
+The AUC, or Area Under the Receiver Operating Characteristic (ROC) Curve, is a commonly used metric in binary classification to evaluate the performance of a classifier. The AUC value ranges between 0 and 1, and a completely random classifier (a model with no discriminative power) is expected to have an AUC of 0.5.
+
 ```{r}
 calcAUC <- function(predcol, outcol) {
   perf <- performance(prediction(predcol, outcol==pos),'auc')
@@ -621,10 +629,17 @@ for(v in colnames(numVars)) {
   }
 }
 ```
+
 ```{r, fig.height=4}
 ggplot(data=train_data) +
-  geom_density(aes(x=uploads.log,color=as.factor(average_yearly_earnings.binary)))
+  geom_density(aes(x=predcreated_date.log,color=as.factor(average_yearly_earnings.binary)))
 ```
+
+The single variable models do not perform well. Each and every variable has and AUC under 0.5. This signifies that using these variables as predictors performs worse than random guessing. In practical terms, if we were to reverse the predictions of such a classifier (i.e., predict class 0 as class 1), it would perform better than its current configuration. 
+
+The double density plot above illustrates why this is the case perfectly. In the context of classifier predicted probabilities, a double density plot is typically used to compare the distributions of predicted probabilities for two classes. In particular, we can see the separation of the classes in this plot.
+
+The double density plot above illustrates the distributions of predicted probabilities for the `predcreated_date.log` feature which reported the highest AUC score in the previous test. We can see that the distributions overlap for the entire plot. Given this significant overlap across the entire range of data, we can see that the classifier has no idea what to predict which explains what it performs worse than the random classifier. 
 
 ## Evaulating Single Variable Models using Log likelihood
 
@@ -642,7 +657,9 @@ logNull <- logLikelihood(sum(train_data[,outcome]==pos)/nrow(train_data), train_
 
 cat("The log likelihood of the Null model is:", logNull)
 ```
-Run through categorical variables to select top performers
+The null model, which predicts the same probability of positive outcome for every observation based on the overall proportion of positive outcomes in the training data, has a log likelihood of -592.2145. In general, higher (i.e., closer to 0) log likelihood values indicate better fit between the predicted probabilities and the true outcomes.
+
+Next we run through categorical variables to select top performers:
 
 ```{r}
 # selCatVars is a vector that keeps the names of the top performing categorical variables.
@@ -680,9 +697,11 @@ selNumVars
 
 ## Forward Selection
 
-Forward selection using AIC is a stepwise model selection procedure for building regression models. We will choose it as the first method for feature selection.  We begin with the null model and  for each predictor not in the model, we add it to the model and compute the AIC (Akaike Information Criterion). 
+Forward selection is a stepwise method used in the context of regression modeling and other predictive modeling techniques. Its main aim is to select a subset of predictors (also known as features or variables) that contribute the most to the prediction of the dependent variable, while discarding predictors that do not add significant predictive power. The process is used to combat overfitting, simplify models, and possibly improve prediction performance.
 
-AIC is a criterion used for model selection. In the context of multiple regression models, AIC balances the fit of the model (in terms of the likelihood) with the number of predictors used. It is formulated as:
+In this project, we perform forward selection using Akaike Information Criterion (AIC). AIC balances two essential aspects of modeling, the goodness-of-fit and the number of parameters used. Models that fit the data very well but are overly complex (use many parameters) are penalized.
+
+AIC is formulated as:
 
 AIC = 2k - 2ln(L)
 
@@ -765,7 +784,6 @@ test_forward_sel$average_yearly_earnings.binary <- as.factor(test_data$average_y
 print(selected_features)
 ```
 
-
 ## Principal Component Analysis (PCA)
 
 Many machine learning problems face the problem of having too many features which makes the training process very slow and also can possibly make it hard to converge on an optimal solution, which is referred to as the **curse of dimensionality**. One of the approaches that can be used to solve this is through dimensionality reduction techniques. This not only speeds up training, it also makes it significantly easier to visualize the data, reducing a training set to 2 or 3 dimensions can make it possible to plot a condensed view of a high dimensional training set and gain insights on potential clusters in the data. 
@@ -800,17 +818,15 @@ Class Separation: The scatter plot shows that the two classes are linearly separ
 
 The explained variance ratio provides insight into the relative importance or contribution of each principal component in capturing the underlying structure of the data. Higher values indicate that the corresponding principal component retains more information about the original dataset.
 
-These values indicate that the first principal component explains approximately 43.49% of the total variance in the dataset, while the second principal component explains approximately 13.96% of the total variance. Together, these two components account for a total of approximately 57.45% of the total variance in the data.
+These values indicate that the first principal component explains approximately 28.49% of the total variance in the dataset, while the second principal component explains approximately 13.78% of the total variance. Together, these two components account for a total of approximately 42.47% of the total variance in the data.
 
 The first principal component captures a significant portion of the variance, indicating that it carries valuable information and potentially separates the classes to a certain extent. The second principal component also contributes to the overall variance, but to a lesser extent compared to the first component.
 
 
 ```{r}
-# Convert the principal components and labels into a data frame
 df_pca <- as.data.frame(pca$x)
 df_pca$class <- as.factor(train_data$average_yearly_earnings.binary)
 
-# Get the variable vectors (loadings)
 variable_vectors <- pca$rotation[, 1:2]
 
 p <- ggplot(df_pca, aes(x = PC1, y = PC2, color = class)) +
@@ -911,10 +927,31 @@ test_pca$average_yearly_earnings.binary <- as.factor(test_data$average_yearly_ea
 
 # Evaluation of Models
 
-
 ## Functions 
 
-**DESCRIBE EACH FUNCTION (purpose)**
+The following functions will be used in the evaluation of the decision tree and logistic regression model
+
+This function calculates the Accuracy, Precision, Recall and F1 score of a given model.
+
+- **Accuracy**: Measures the fraction of correct predictions made by the model out of all predictions. 
+
+  - Accuracy = Number of correct predictions / total number of all predictions 
+  
+- **Precision**: Measures the fraction of relevant instances among the retrieved instances.Out of all the positive predictions made by the model, how many were actually positive.
+
+  - Precision = True Positive (TP) / (True Positive + False Positive)
+  
+  - Precision is especially important when the cost of a false positive is high.
+  
+- **Recall**: Measures the fraction of relevant instances that have been retrieved over the total amount of relevant instances. Out of all the actual positives, how many were predicted as positive by the model.
+
+  - Recall = True Positive (TP) / (True Positive + False Negatives)
+  
+  - Recall is crucial when the cost of a false negative is high. 
+  
+- **F1 Score**: Harmonic mean of precision and recall. The F1 score demonstrates the precision/recall trade off. The F1 score cannot be high unless both precision and recall are high.
+
+  - The F1 score ranges between 0 (worst) and 1 (best). An F1 score of 1 indicates perfect precision and recall, while a score of 0 indicates that either the precision or the recall is zero.
 
 ```{r}
 # This function calculates the accuracy, precision, recall and F1 score for a model
@@ -939,6 +976,8 @@ cal_scores <- function(train_data, train_pred, calibration_data, calibration_pre
   list(train = train_results, calibration = calibration_results)
 }
 ```
+
+This function visualizes the precision and recall as a function of the threshold. By plotting precision and recall against the threshold, one can visually inspect the trade-offs. At some thresholds, precision might be high but recall is low and vice versa. Understanding this trade-off can help in deciding the optimal threshold.
 
 ```{r}
 # This function plots precision and recall vs threshold
@@ -988,10 +1027,13 @@ plot_precision_recall_vs_threshold <- function(pred, data, title) {
 }
 ```
 
+This function plots the Receiver Operating Characteristic (ROC) and displays the Area Under Curve (AUC). The Receiver Operating Characteristic (ROC) is a graphical representation used to evaluate the performance of binary classification models. It illustrates the diagnostic ability of a classifier system as its discrimination threshold changes. The ROC curve plots the True Positive Rate (TPR) against the False Positive Rate (FPR) for various threshold values.
+
+AUC is a metric that quantifies the overall ability of the classifier to distinguish between positive and negative classes. An AUC of 1 indicates a perfect classifier, while an AUC of 0.5 indicates no discrimination capability. AUC values between 0 and 0.5 suggest a model that performs worse than random guessing.
 
 ```{r}
 # This function plots the ROC 
-plot_roc <- function(predictions, data) {
+plot_roc <- function(predictions, data, title) {
   # Predict the probabilities
   probs <- predictions$.pred_1
   pred <- prediction(probs, data$average_yearly_earnings.binary)
@@ -1008,7 +1050,7 @@ plot_roc <- function(predictions, data) {
     geom_text(aes(x = 0.5, y = 0.25), 
               label = paste("AUC =", round(auc_value, 2)), 
               color = "red") +
-    labs(title = "ROC Curve",
+    labs(title = title,
          x = "False Positive Rate",
          y = "True Positive Rate") +
     coord_fixed(ratio = 1) +
@@ -1016,16 +1058,18 @@ plot_roc <- function(predictions, data) {
 }
 ```
 
+This function plots the confusion matrix. The confusion matrix, is a table used to evaluate the performance of a classification model. It provides a breakdown of predictions into a table showing correct predictions and the types of incorrect predictions made. It is particularly useful for a more detailed analysis of where a classification model is getting things right and where it's making errors.
+
 ```{r}
 # Plot confusion matrix
-plot_con_matrix <- function(pred, data, threshold = 0.5){
+plot_con_matrix <- function(pred, data, title){
   cm <- confusionMatrix(as.factor(pred[[1]]), data$average_yearly_earnings.binary)
   plt <- as.data.frame(cm$table)
   plt$Prediction <- factor(plt$Prediction, levels=rev(levels(plt$Prediction)))
   ggplot(plt, aes(Prediction,Reference, fill= Freq)) +
           geom_tile() + geom_text(aes(label=Freq)) +
           scale_fill_gradient(low="white", high="#009194") +
-          labs(x = "Reference",y = "Prediction") 
+          labs(title = title, x = "Reference",y = "Prediction") 
 }
 ```
 
@@ -1033,7 +1077,8 @@ plot_con_matrix <- function(pred, data, threshold = 0.5){
 
 Logistic regression aims to find the best possible fit between the selected features and the target variable to predict the probability of the target variable being of high or low earnings. 
 
-The following function returns a logistic regression model given a set of inputs, we will use this to test the various inputs given the two feature selection strategies, forward selection and PCA. The model uses lasso regression and the glmnet engine which allows us to set a penalty value. The strength of this penalty value can be tuned to give us optimal results. 
+The following function returns a logistic regression model using GLM given a set of data. We use 10-fold cross validation, the data is divided into 10 parts, where 9 parts are used for training and 1 part is used for validation. This process is repeated 10 times, each time using a different part for validation.
+
 
 ```{r}
 # Train a logistic regression model using glm and 10 fold cross validation
@@ -1051,8 +1096,6 @@ train_log_reg <- function(df) {
 ```
 
 ## Logistic Regression with Forward Selection Features
-
-
 
 ```{r}
 log_reg_forward <- train_log_reg(train_forward_sel)
@@ -1072,6 +1115,12 @@ test_class_logreg <- as_tibble(ifelse(test_pred_logreg$.pred_1 > 0.5, 1, 0)) %>%
   mutate(".pred_class" = as.factor(value))
 ```
 
+We train a logistic regression model based on the features obtained from forward selection. The metrics of the best performing model are:
+
+- Accuracy: This is the proportion of correctly predicted classifications in the dataset. An accuracy of 0.7999179 (or roughly 80%) means that 80% of the predictions made by the model on the test sets were correct.
+
+- Kappa: Cohen's Kappa is a statistic that measures the agreement between two raters (in this case, the model's predictions and the true values) while taking into account the agreement that could happen by chance. A value of 0.5988002 indicates a moderate to substantial agreement. Typically, a Kappa value above 0.6 is considered substantial.
+
 ```{r}
 performance_log_reg_forward_sel <- cal_scores(train_forward_sel, train_class_logreg , test_forward_sel, test_class_logreg)
 print(performance_log_reg_forward_sel$train)
@@ -1086,14 +1135,14 @@ grid.arrange(p1, p2, ncol=2)
 ```
 
 ```{r, fig.width=8, fig.height=4}
-p1 <- plot_roc(train_pred_logreg, train_forward_sel)
-p2 <- plot_roc(test_pred_logreg, test_forward_sel)
+p1 <- plot_roc(train_pred_logreg, train_forward_sel, "ROC Curve Train Set")
+p2 <- plot_roc(test_pred_logreg, test_forward_sel, "ROC Curve Test Set")
 grid.arrange(p1, p2, ncol=2)
 ```
 
 ```{r, fig.width=8, fig.height=4}
-p1 <- plot_con_matrix(train_class_logreg, train_forward_sel)
-p2 <- plot_con_matrix(test_class_logreg, test_forward_sel)
+p1 <- plot_con_matrix(train_class_logreg, train_forward_sel, "Confusion Matrix Train Set")
+p2 <- plot_con_matrix(test_class_logreg, test_forward_sel, "Confusion Matrix Test Set")
 grid.arrange(p1, p2, ncol=2)
 ```
 
@@ -1130,14 +1179,14 @@ grid.arrange(p1, p2, ncol=2)
 ```
 
 ```{r, fig.width=8, fig.height=4}
-p1 <- plot_roc(train_pred_pca, train_pca)
-p2 <- plot_roc(test_pred_pca, test_pca)
+p1 <- plot_roc(train_pred_pca, train_pca, "ROC Curve Train Set")
+p2 <- plot_roc(test_pred_pca, test_pca, "ROC Curve Test Set")
 grid.arrange(p1, p2, ncol=2)
 ```
 
 ```{r, fig.width=8, fig.height=4}
-p1 <- plot_con_matrix(train_class_pca, train_pca)
-p2 <- plot_con_matrix(test_class_pca, test_pca)
+p1 <- plot_con_matrix(train_class_pca, train_pca, "Confusion Matrix Train Set")
+p2 <- plot_con_matrix(test_class_pca, test_pca, "Confusion Matrix Test Set")
 grid.arrange(p1, p2, ncol=2)
 ```
 
@@ -1190,14 +1239,14 @@ grid.arrange(p1, p2, ncol=2)
 ```
 
 ```{r, fig.width=8, fig.height=4}
-p1 <- plot_roc(train_pred_dt, train_forward_sel)
-p2 <- plot_roc(test_pred_dt, test_forward_sel)
+p1 <- plot_roc(train_pred_dt, train_forward_sel, "ROC Curve Train Set")
+p2 <- plot_roc(test_pred_dt, test_forward_sel, "ROC Curve Test Set")
 grid.arrange(p1, p2, ncol=2)
 ```
 
 ```{r, fig.width=8, fig.height=4}
-p1 <- plot_con_matrix(train_class_dt, train_forward_sel)
-p2 <- plot_con_matrix(test_class_dt, test_forward_sel)
+p1 <- plot_con_matrix(train_class_dt, train_forward_sel, "Confusion Matrix Train Set")
+p2 <- plot_con_matrix(test_class_dt, test_forward_sel, "Confusion Matrix Test Set")
 grid.arrange(p1, p2, ncol=2)
 ```
 
@@ -1233,14 +1282,14 @@ grid.arrange(p1, p2, ncol=2)
 ```
 
 ```{r, fig.width=8, fig.height=4}
-p1 <- plot_roc(train_pred_dt, train_pca)
-p2 <- plot_roc(test_pred_dt, test_pca)
+p1 <- plot_roc(train_pred_dt, train_pca, "ROC Curve Train Set")
+p2 <- plot_roc(test_pred_dt, test_pca, "ROC Curve Test Set")
 grid.arrange(p1, p2, ncol=2)
 ```
 
 ```{r, fig.width=8, fig.height=4}
-p1 <- plot_con_matrix(train_class_dt, train_pca)
-p2 <- plot_con_matrix(test_class_dt, test_pca)
+p1 <- plot_con_matrix(train_class_dt, train_pca, "Confusion Matrix Train Set")
+p2 <- plot_con_matrix(test_class_dt, test_pca, "Confusion Matrix Test Set")
 grid.arrange(p1, p2, ncol=2)
 ```
 
