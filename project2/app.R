@@ -287,6 +287,134 @@ transform_data <- function(data, pca, num_components) {
   return(as.data.frame(pc_scores))
 }
 
+# This function calculates the accuracy, precision, recall and F1 score for a model
+cal_scores <- function(train_data, train_pred, calibration_data, calibration_pred){
+  
+  # Calculate metrics for the training data
+  train_results <- tibble(
+    Accuracy  = accuracy_vec(train_data$average_yearly_earnings.binary, train_pred$.pred_class),
+    Precision = precision_vec(train_data$average_yearly_earnings.binary, train_pred$.pred_class),
+    Recall    = recall_vec(train_data$average_yearly_earnings.binary, train_pred$.pred_class),
+    F1        = f_meas_vec(train_data$average_yearly_earnings.binary, train_pred$.pred_class)
+  )
+  
+  # Calculate metrics for the calibration data
+  calibration_results <- tibble(
+    Accuracy  = accuracy_vec(calibration_data$average_yearly_earnings.binary, calibration_pred$.pred_class),
+    Precision = precision_vec(calibration_data$average_yearly_earnings.binary, calibration_pred$.pred_class),
+    Recall    = recall_vec(calibration_data$average_yearly_earnings.binary, calibration_pred$.pred_class),
+    F1        = f_meas_vec(calibration_data$average_yearly_earnings.binary, calibration_pred$.pred_class)
+  )
+  
+  list(train = train_results, calibration = calibration_results)
+}
+
+# This function plots precision and recall vs threshold
+plot_precision_recall_vs_threshold <- function(pred, data, title) {
+  # Predict the probabilities
+  probs <-pred$.pred_1
+  
+  # Create a data frame with true labels and predicted probabilities
+  results <- data.frame(
+    True = data$average_yearly_earnings.binary,
+    Prob = probs
+  )
+  
+  # For each threshold, compute precision and recall
+  thresholds <- seq(0, 1, by = 0.01)
+  metrics <- sapply(thresholds, function(thresh) {
+    predictions <- ifelse(results$Prob > thresh, 1, 0)
+    # Ensure predictions always have levels 0 and 1
+    predictions <- factor(predictions, levels = c(0, 1))
+    
+    precision <- precision_vec(results$True, predictions)
+    recall <- recall_vec(results$True, predictions)
+    c(Precision = precision, Recall = recall)
+  })
+  
+  # Transform results for plotting
+  df <- as.data.frame(t(metrics))
+  df$Threshold <- thresholds
+  df$Difference <- abs(df$Precision - df$Recall)
+  intersection_point <- df[which.min(df$Difference), "Threshold"]
+  
+  p <- ggplot(df, aes(x = Threshold)) +
+    geom_line(aes(y = Precision, color = 'Precision')) +
+    geom_line(aes(y = Recall, color = 'Recall')) +
+    labs(title = title, 
+         y = "Value", 
+         x = "Threshold",
+         color = "Metric") +
+    geom_vline(aes(xintercept = 0.5), linetype = "dashed", color = "black", size = 0.5) +
+    geom_text(aes(x = 0.5, y = 0.2, label = "Default threshold"), angle = 90, vjust = -0.5) +
+    geom_vline(aes(xintercept = intersection_point), linetype = "dashed", color = "red", size = 0.5) +
+    geom_text(aes(x = intersection_point, y = 0.2, 
+                  label = paste0("Intersection ", round(intersection_point, 2))), angle = 90, vjust = -0.5) +
+    theme_minimal()
+  
+  return(p)
+}
+
+# This function plots the ROC 
+plot_roc <- function(predictions, data, title) {
+  # Predict the probabilities
+  probs <- predictions$.pred_1
+  pred <- prediction(probs, data$average_yearly_earnings.binary)
+  perf <- performance(pred, "tpr", "fpr")
+  roc_data <- data.frame(
+    FPR = unlist(perf@x.values),
+    TPR = unlist(perf@y.values)
+  )
+  auc <- performance(pred, measure = "auc")
+  auc_value <- unlist(auc@y.values) 
+  ggplot(roc_data, aes(x = FPR, y = TPR)) +
+    geom_line(color = "blue") +
+    geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
+    geom_text(aes(x = 0.5, y = 0.25), 
+              label = paste("AUC =", round(auc_value, 2)), 
+              color = "red") +
+    labs(title = title,
+         x = "False Positive Rate",
+         y = "True Positive Rate") +
+    coord_fixed(ratio = 1) +
+    theme_minimal()
+}
+
+# Plot confusion matrix
+plot_con_matrix <- function(pred, data, title){
+  cm <- confusionMatrix(as.factor(pred[[1]]), data$average_yearly_earnings.binary)
+  plt <- as.data.frame(cm$table)
+  plt$Prediction <- factor(plt$Prediction, levels=rev(levels(plt$Prediction)))
+  ggplot(plt, aes(Prediction,Reference, fill= Freq)) +
+    geom_tile() + geom_text(aes(label=Freq)) +
+    scale_fill_gradient(low="white", high="#009194") +
+    labs(title = title, x = "Reference",y = "Prediction") 
+}
+
+# Train a logistic regression model using glm and 10 fold cross validation
+train_log_reg <- function(df) {
+  trControl <- trainControl(method = "cv", number = 10)
+  model <- train(
+    average_yearly_earnings.binary ~ ., 
+    data = df, 
+    method = "glm", 
+    family = "binomial", 
+    trControl = trControl
+  )
+  return(model)
+}
+
+train_dt <- function(df) {
+  trControl <- trainControl(method = "cv", number = 10)
+  dt_forward_cv <- train(
+    average_yearly_earnings.binary ~ ., 
+    data = df, 
+    method = "rpart", 
+    trControl = trControl
+  )
+  return(dt_forward_cv)
+}
+
 ui <- dashboardPage(
   dashboardHeader(),
   dashboardSidebar(
@@ -373,7 +501,35 @@ ui <- dashboardPage(
                   valueBoxOutput("explainedVarBox", width=6)
                 )
               )),
-      tabItem(tabName = "classify", h2("Classification Models content")),
+      tabItem(tabName = "classify", uiOutput("dynamicTitleClass"),
+              fluidRow(
+                tabBox(
+                  title="Metrics",
+                  id="tabset1",
+                  width=12,
+                  tabPanel("Stats",
+                           fluidRow(
+                             valueBoxOutput("trainaccuracyBox", width =6),
+                             valueBoxOutput("testaccuracyBox", width=6)
+                           ),
+                           fluidRow(
+                             valueBoxOutput("trainprecisionBox", width =6),
+                             valueBoxOutput("testprecisionBox", width=6)
+                           ),
+                           fluidRow(
+                             valueBoxOutput("trainrecallBox", width =6),
+                             valueBoxOutput("testrecallBox", width=6)
+                           ),
+                           fluidRow(
+                             valueBoxOutput("trainf1Box", width =6),
+                             valueBoxOutput("testf1Box", width=6)
+                           )),
+                  tabPanel("Precision & Recall vs Threshold", plotOutput("prvsThresh")),
+                  tabPanel("ROC", plotOutput("plotROC")),
+                  tabPanel("Confusion Matrix", plotOutput("plotConMat"))
+                )
+              ),
+      ),
       tabItem(tabName = "cluster", h2("Clustering content"))
     )
   )
@@ -418,6 +574,15 @@ server <- function(input, output, session) {
   # Render UI for dynamic title
   output$dynamicTitleFeatureSel <- renderUI({
     h2(dynamicHeadingFeatureSel())
+  })
+  
+  dynamicHeadingClass <- reactive({
+    paste("Classification Model -", input$classModel)
+  })
+  
+  # Render UI for dynamic title
+  output$dynamicTitleClass <- renderUI({
+    h2(dynamicHeadingClass())
   })
   
   shiny::observe({
@@ -642,6 +807,111 @@ server <- function(input, output, session) {
               )
             })
           }
+          
+          # Time to do classification
+          if(input$featureSelStrat == "Forward Selection") {
+            train_d <- train_forward_sel
+            test_d <- test_forward_sel
+            
+          } else if(input$featureSelStrat == "PCA") {
+            train_d <- train_pca
+            test_d <- test_pca
+          }
+          
+          if(input$classModel == "Logistic Regression") {
+            log_reg <- train_log_reg(train_d)
+            
+            train_pred <- as_tibble(predict(log_reg, newdata = train_d, type = "prob")) %>%
+              mutate(".pred_1" = `1`)
+            
+            test_pred <- as_tibble(predict(log_reg, newdata = test_d, type = "prob")) %>%
+              mutate(".pred_1" = `1`)
+            
+            train_class <- as_tibble(ifelse(train_pred$.pred_1 > 0.5, 1, 0)) %>%
+              mutate(".pred_class" = as.factor(value))
+            
+            test_class <- as_tibble(ifelse(test_pred$.pred_1 > 0.5, 1, 0)) %>%
+              mutate(".pred_class" = as.factor(value))
+          } else if(input$classModel == "Decision Tree") {
+            dt <- train_dt(train_d)
+
+            train_class <- as_tibble(predict(dt, newdata = train_d, type = "raw")) %>%
+              rename(".pred_class" = value)
+            test_class <- as_tibble(predict(dt, newdata = test_d, type = "raw")) %>%
+              rename(".pred_class" = value)
+            
+            train_pred <- as_tibble(predict(dt, newdata = train_d, type = "prob")) %>%
+              rename(".pred_0" = `0`, ".pred_1" = `1`)
+            
+            test_pred <- as_tibble(predict(dt, newdata = test_d, type = "prob")) %>%
+              rename(".pred_0" = `0`, ".pred_1" = `1`)
+          }
+          
+          performance <- cal_scores(train_d, train_class , test_d, test_class)
+          
+          output$trainaccuracyBox <- renderValueBox({
+            valueBox(
+              round(performance$train$Accuracy, 3), "Train Accuracy", color = "purple", icon = icon("grip-lines-vertical")
+            )
+          })
+          
+          output$testaccuracyBox <- renderValueBox({
+            valueBox(
+              round(performance$calibration$Accuracy, 3), "Test Accuracy", color = "green", icon = icon("thumbs-up")
+            )
+          })
+          output$trainprecisionBox <- renderValueBox({
+            valueBox(
+              round(performance$train$Precision, 3), "Train Precision", color = "purple", icon = icon("grip-lines-vertical")
+            )
+          })
+          
+          output$testprecisionBox <- renderValueBox({
+            valueBox(
+              round(performance$calibration$Precision, 3), "Test Precision", color = "green", icon = icon("thumbs-up")
+            )
+          })
+          output$trainrecallBox <- renderValueBox({
+            valueBox(
+              round(performance$train$Recall, 3), "Train Recall", color = "purple", icon = icon("grip-lines-vertical")
+            )
+          })
+          
+          output$testrecallBox <- renderValueBox({
+            valueBox(
+              round(performance$calibration$Recall, 3), "Test Recall", color = "green", icon = icon("thumbs-up")
+            )
+          })
+          output$trainf1Box <- renderValueBox({
+            valueBox(
+              round(performance$train$F1, 3), "Train F1", color = "purple", icon = icon("grip-lines-vertical")
+            )
+          })
+          
+          output$testf1Box <- renderValueBox({
+            valueBox(
+              round(performance$calibration$F1, 3), "Test F1", color = "green", icon = icon("thumbs-up")
+            )
+          })
+          
+          output$prvsThresh <- renderPlot({
+            p1 <- plot_precision_recall_vs_threshold(train_pred, train_d, "Precision and Recall vs. Threshold, Train Set")
+            p2 <- plot_precision_recall_vs_threshold(test_pred, test_d, "Precision and Recall vs. Threshold, Test Set")
+            grid.arrange(p1, p2, ncol=2)
+          })
+          
+          output$plotROC <- renderPlot({
+            p1 <- plot_roc(train_pred, train_d, "ROC Curve Train Set")
+            p2 <- plot_roc(test_pred, test_d, "ROC Curve Test Set")
+            grid.arrange(p1, p2, ncol=2)
+          })
+          
+          output$plotConMat <- renderPlot({
+            p1 <- plot_con_matrix(train_class, train_d, "Confusion Matrix Train Set")
+            p2 <- plot_con_matrix(test_class, test_d, "Confusion Matrix Test Set")
+            grid.arrange(p1, p2, ncol=2)
+          })
+          
         }
       }
     }
