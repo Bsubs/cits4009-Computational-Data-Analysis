@@ -33,6 +33,8 @@ library(yardstick)
 library(rpart)
 library(rpart.plot)
 library(fpc)
+library('grDevices')
+
 
 # Workaround for shiny dashboard not properly supporting input fields in menu items
 convertMenuItem <- function(mi,tabName) {
@@ -415,6 +417,82 @@ train_dt <- function(df) {
   return(dt_forward_cv)
 }
 
+find_convex_hull <- function(proj2Ddf, groups) {
+  do.call(rbind,
+          lapply(unique(groups),
+                 FUN = function(c) {
+                   f <- subset(proj2Ddf, cluster==c);
+                   f[chull(f),]
+                 }
+          )
+  )
+}
+
+# Function to return the squared Euclidean distance of two given points x and y
+sqr_euDist <- function(x, y) {
+  sum((x - y)^2)
+}
+
+# Function to calculate WSS of a cluster, represented as a n-by-d matrix
+# (where n and d are the numbers of rows and columns of the matrix)
+# which contains only points of the cluster.
+wss <- function(clustermat) {
+  c0 <- colMeans(clustermat)
+  sum(apply( clustermat, 1, FUN=function(row) {sqr_euDist(row, c0)} ))
+}
+
+# Function to calculate the total WSS. Argument `scaled_df`: data frame
+# with normalised numerical columns. Argument `labels`: vector containing
+# the cluster ID (starting at 1) for each row of the data frame.
+wss_total <- function(scaled_df, labels) {
+  wss.sum <- 0
+  k <- length(unique(labels))
+  for (i in 1:k)
+    wss.sum <- wss.sum + wss(subset(scaled_df, labels == i))
+  wss.sum
+}
+
+# Function to calculate total sum of squared (TSS) distance of data
+# points about the (global) mean. This is the same as WSS when the
+# number of clusters (k) is 1.
+tss <- function(scaled_df) {
+  wss(scaled_df)
+}
+
+# Function to return the CH indices computed using hierarchical
+# clustering (function `hclust`) or k-means clustering (`kmeans`)
+# for a vector of k values ranging from 1 to kmax.
+CH_index <- function(scaled_df, kmax, method="kmeans") {
+  if (!(method %in% c("kmeans", "hclust")))
+    stop("method must be one of c('kmeans', 'hclust')")
+  npts <- nrow(scaled_df)
+  wss.value <- numeric(kmax) # create a vector of numeric type
+  # wss.value[1] stores the WSS value for k=1 (when all the
+  # data points form 1 large cluster).
+  wss.value[1] <- wss(scaled_df)
+  
+  if (method == "kmeans") {
+    # kmeans
+    for (k in 2:kmax) {
+      clustering <- kmeans(scaled_df, k, nstart=10, iter.max=100)
+      wss.value[k] <- clustering$tot.withinss
+    }
+  } else {
+    # hclust
+    d <- dist(scaled_df, method="euclidean")
+    pfit <- hclust(d, method="ward.D2")
+    for (k in 2:kmax) {
+      labels <- cutree(pfit, k=k)
+      wss.value[k] <- wss_total(scaled_df, labels)
+    }
+  }
+  bss.value <- tss(scaled_df) - wss.value # this is a vector
+  B <- bss.value / (0:(kmax-1)) # also a vector
+  W <- wss.value / (npts - 1:kmax) # also a vector
+  data.frame(k = 1:kmax, CH_index = B/W, WSS = wss.value)
+}
+
+
 ui <- dashboardPage(
   dashboardHeader(),
   dashboardSidebar(
@@ -456,7 +534,7 @@ ui <- dashboardPage(
                             selected = "Logistic Regression")), "classify"),
       
       # Clustering tab
-      convertMenuItem(menuItem("Clustering", tabName = "cluster", icon = icon("sitemap")), "clustering")
+      convertMenuItem(menuItem("Clustering", tabName = "cluster", icon = icon("sitemap")), "cluster")
     ),
     textOutput("res")
   ),
@@ -530,7 +608,15 @@ ui <- dashboardPage(
                 )
               ),
       ),
-      tabItem(tabName = "cluster", h2("Clustering content"))
+      tabItem(tabName = "cluster", h2("Clustering"),
+              tabBox(
+                title="Clustering",
+                id="tabset2",
+                width=12,
+                tabPanel("Dendrogram", plotOutput("dendrogram")),
+                tabPanel("Clusters", plotOutput("clusters")),
+                tabPanel("CH Index and WSS", plotOutput("chindex"))
+              ))
     )
   )
 )
@@ -694,6 +780,8 @@ server <- function(input, output, session) {
         youtube_scaled <- deal_with_zeroes(youtube_scaled)
         train_data <- deal_with_zeroes(train_data)
         test_data <- deal_with_zeroes(test_data)
+        youtube <- deal_with_zeroes(youtube)
+        youtube_cleaned <- rbind(train_data, test_data)
         
         sep_train <- separate_vars(train_data)
         numVars <- sep_train$numVars
@@ -911,6 +999,55 @@ server <- function(input, output, session) {
             p2 <- plot_con_matrix(test_class, test_d, "Confusion Matrix Test Set")
             grid.arrange(p1, p2, ncol=2)
           })
+          
+          if(input$tabs == "cluster") {
+            
+            youtube_clustering <- subset(youtube, select=-c(average_yearly_earnings.binary, Country, channel_type, created_month))
+            youtube_clustering <- transform_cols(youtube_clustering, colnames(youtube_clustering), "norm")
+            youtube_clustering <- youtube_clustering[, grep("\\.norm$", colnames(youtube_clustering))]
+            colnames(youtube_clustering) <- sub("\\.norm$", "", colnames(youtube_clustering))
+            
+            d <- dist(youtube_clustering, method="manhattan")
+            pfit <- hclust(d, method="ward.D2")
+            groups <- cutree(pfit, k=3)
+            
+            output$dendrogram <- renderPlot({
+              plot(pfit, main="Cluster Dendrogram for Youtube Channels", labels=names$Youtuber)
+              rect.hclust(pfit, k=3) 
+            })
+
+            princ <- prcomp(youtube_clustering)
+            nComp <- 2
+            project2D <- as.data.frame(predict(princ, newdata=youtube_clustering)[,1:nComp])
+            hclust.project2D <- cbind(project2D, cluster=as.factor(groups), country=names$Country)
+            
+            hclust.hull <- find_convex_hull(hclust.project2D, groups)
+            
+            output$clusters <- renderPlot({
+              ggplot(hclust.project2D, aes(x=PC1, y=PC2)) +
+                geom_point(aes(shape=cluster, color=cluster)) +
+                geom_text(aes(label=country, color=cluster), hjust=0, vjust=1, size=3) +
+                geom_polygon(data=hclust.hull, aes(group=cluster, fill=as.factor(cluster)),
+                             alpha=0.4, linetype=0) + theme(text=element_text(size=8))
+            })
+            
+            # calculate the CH criterion
+            crit.df <- CH_index(youtube_clustering, 10, method="hclust")
+            
+            output$chindex <- renderPlot({
+              fig1 <- ggplot(crit.df, aes(x=k, y=CH_index)) +
+                geom_point() + geom_line(colour="red") +
+                scale_x_continuous(breaks=1:10, labels=1:10) +
+                labs(y="CH index") + theme(text=element_text(size=8))
+              
+              fig2 <- ggplot(crit.df, aes(x=k, y=WSS), color="blue") +
+                geom_point() + geom_line(colour="blue") +
+                scale_x_continuous(breaks=1:10, labels=1:10) +
+                theme(text=element_text(size=8))
+              
+              grid.arrange(fig1, fig2, nrow=1)
+            })
+          }
           
         }
       }
