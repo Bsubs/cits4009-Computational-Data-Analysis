@@ -280,6 +280,13 @@ clean_data <- function(df){
   return(df1)
 }
 
+# Function to apply PCA transformation on new datasets
+transform_data <- function(data, pca, num_components) {
+  centered_data <- scale(data, center = pca$center, scale = pca$scale)
+  pc_scores <- centered_data %*% pca$rotation[, 1:num_components]
+  return(as.data.frame(pc_scores))
+}
+
 ui <- dashboardPage(
   dashboardHeader(),
   dashboardSidebar(
@@ -348,7 +355,24 @@ ui <- dashboardPage(
                 valueBoxOutput("aucBox", width =6),
                 valueBoxOutput("devianceRedBox", width=6)
               )),
-      tabItem(tabName = "selectfeature", h2("Feature Selection content")),
+      tabItem(tabName = "selectfeature", uiOutput("dynamicTitleFeatureSel"),
+              fluidRow(
+                conditionalPanel(condition="input.featureSelStrat == 'Forward Selection'",
+                  box(title="Forward Selection Features:", status="primary", solidHeader = TRUE, width=12,
+                      uiOutput("forwardSelResults")
+                  )
+                ),
+                conditionalPanel(condition="input.featureSelStrat == 'PCA'",
+                  box(title="PCA", status="primary", solidHeader=TRUE, width=12,
+                      plotOutput("explainedVarPlot"))
+                )),
+              fluidRow(
+                conditionalPanel(
+                  condition="input.featureSelStrat == 'PCA'",
+                  valueBoxOutput("numDimBox", width =6),
+                  valueBoxOutput("explainedVarBox", width=6)
+                )
+              )),
       tabItem(tabName = "classify", h2("Classification Models content")),
       tabItem(tabName = "cluster", h2("Clustering content"))
     )
@@ -385,6 +409,15 @@ server <- function(input, output, session) {
   # Render UI for dynamic title
   output$dynamicTitleSingleVar <- renderUI({
     h2(dynamicHeadingSingleVar())
+  })
+  
+  dynamicHeadingFeatureSel <- reactive({
+    paste("Feature Selection -", input$featureSelStrat)
+  })
+  
+  # Render UI for dynamic title
+  output$dynamicTitleFeatureSel <- renderUI({
+    h2(dynamicHeadingFeatureSel())
   })
   
   shiny::observe({
@@ -551,6 +584,63 @@ server <- function(input, output, session) {
             train_forward_sel$average_yearly_earnings.binary <- as.factor(train_data$average_yearly_earnings.binary)
             test_forward_sel$average_yearly_earnings.binary <- as.factor(test_data$average_yearly_earnings.binary)
             
+            output$forwardSelResults <- renderUI({
+              tagList(
+                lapply(selected_features, function(feature) {
+                  div(
+                    h3(feature)
+                  )
+                })
+              )
+            })
+          } else if(input$featureSelStrat == "PCA") {
+            pca <- prcomp(train_data, center = TRUE, scale. = TRUE)
+            explained_variance_ratio <- pca$sdev^2 / sum(pca$sdev^2)
+            cumulative_variance <- cumsum(explained_variance_ratio)
+            num_components <- as.numeric(input$nPCs)
+            retained_variance <- cumulative_variance[num_components]
+            
+            explained_variance_data <- data.frame(
+              Dimension = 1:length(explained_variance_ratio),
+              ExplainedVariance = explained_variance_ratio,
+              CumulativeVariance = cumulative_variance
+            )
+            
+            train_pca <- as.data.frame(pca$x[, 1:num_components])
+            test_pca <- transform_data(test_data, pca, num_components)
+            
+            train_pca$average_yearly_earnings.binary <- as.factor(train_data$average_yearly_earnings.binary)
+            test_pca$average_yearly_earnings.binary <- as.factor(test_data$average_yearly_earnings.binary)
+            
+            output$explainedVarPlot <- renderPlot({
+              p <- ggplot(explained_variance_data, aes(x = Dimension)) +
+                geom_bar(aes(y = ExplainedVariance), stat = "identity", fill = "blue", alpha = 0.7) +
+                geom_line(aes(y = CumulativeVariance), color = "red", size = 1.2) +
+                geom_point(aes(y = CumulativeVariance), color = "red") +
+                geom_vline(aes(xintercept = num_components), color = "black", linetype = "dashed", size = 1) +
+                labs(
+                  title = "Explained Variance as a Function of Dimensions",
+                  x = "Number of Dimensions",
+                  y = "Variance Explained",
+                  caption = "Blue Bars = Individual Explained Variance\nRed Line = Cumulative Explained Variance"
+                ) +
+                scale_y_continuous(labels = scales::percent) +
+                theme_minimal()
+              
+              print(p)
+            })
+            
+            output$numDimBox <- renderValueBox({
+              valueBox(
+                num_components, "Number of Principal Components", color = "purple", icon = icon("grip-lines-vertical")
+              )
+            })
+            
+            output$explainedVarBox <- renderValueBox({
+              valueBox(
+                retained_variance, "Retained Variance", color = "green", icon = icon("thumbs-up")
+              )
+            })
           }
         }
       }
