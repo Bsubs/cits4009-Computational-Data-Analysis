@@ -16,51 +16,6 @@ img {
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 ```
 
-- Introduce the youtube dataset and the features
-
-- Start by talking about some EDA stuff 
-  - Add graphs and talk about missing data and w/e
-  - Histograms
-  - Do log transforms of data
-  - Explore which variables need to be scaled 
-  - Binarize the target variable
-    - Try mean / median / other sensible values 
-  
-- Basic data cleaning
-  - Discard character string and categorical columns
-  - Convert the factors 
-  
-- Choose the response variable for the task
-  - Formulate it as a binary classification problem 
-  
-- Split the data into test and train set 
-  - Justify this
-
-- Implement a NULL model
-
-- Implement a single-variable model 
-  - Try every single variable and pick out the best features
-  - Use this as a baseline to compare with the complex models
-
-- Implement decision tree classifier
-
-- Implement the following
-  - logistic regression
-  - naive bayes 
-  - KNN
-  - FIND THE MOST INTERESTING ONE AND DO SOMEHING WITH IT
-  - Attribute & feature selection 
-    - Do a load with this (like a lot, lots and lots)
-    - 3-4 attribute selection techniques 
-    - Mix and match 
-    - and compare the results of all the different types and make pretty graphs for it
-    - end myself
-  
-- Things to investigate
-  - Earnings
-  - Subscribers
-  - 
-
 # Introduction
 
 The 2023 Global YouTube Statistic dataset can be accessed from Kaggle from the link below:
@@ -929,7 +884,7 @@ test_pca$average_yearly_earnings.binary <- as.factor(test_data$average_yearly_ea
 
 ## Functions 
 
-The following functions will be used in the evaluation of the decision tree and logistic regression model
+We will evaluate the Decision Tree and Logistic Regression Models using the 4 functions shown below:
 
 This function calculates the Accuracy, Precision, Recall and F1 score of a given model.
 
@@ -1075,9 +1030,9 @@ plot_con_matrix <- function(pred, data, title){
 
 # Logistic Regression Classifier
 
-Logistic regression aims to find the best possible fit between the selected features and the target variable to predict the probability of the target variable being of high or low earnings. 
+The first classification method used will be logistic regression.  Logistic Regression is a statistical method used for modeling the probability of a certain class (high/low earnings). It's especially used in cases where the response variable is categorical, most commonly binary. We have binarized our target variable in an earlier part of this report to make it compatible with the logistic regression classifier. 
 
-The following function returns a logistic regression model using GLM given a set of data. We use 10-fold cross validation, the data is divided into 10 parts, where 9 parts are used for training and 1 part is used for validation. This process is repeated 10 times, each time using a different part for validation.
+As mentioned earlier in the report when we were splitting the data into training and testing sets, we did not make use of a calibration set as we were going to use k-fold cross-validation to pick the best model. K-fold cross validation is a widely used technique for assessing the performance of machine learning models. With a single train/test split, the evaluation can vary a lot based on which data points end up in the training set and which ones end up in the test set. K-fold cross validation, by averaging results from multiple partitions, reduces this variability and provides a more stable and robust estimate of model performance.
 
 
 ```{r}
@@ -1119,7 +1074,7 @@ We train a logistic regression model based on the features obtained from forward
 
 - Accuracy: This is the proportion of correctly predicted classifications in the dataset. An accuracy of 0.7999179 (or roughly 80%) means that 80% of the predictions made by the model on the test sets were correct.
 
-- Kappa: Cohen's Kappa is a statistic that measures the agreement between two raters (in this case, the model's predictions and the true values) while taking into account the agreement that could happen by chance. A value of 0.5988002 indicates a moderate to substantial agreement. Typically, a Kappa value above 0.6 is considered substantial.
+- Kappa: Cohen's Kappa is a statistic that measures the agreement between two raters (in this case, the model's predictions and the true values) while taking into account the agreement that could happen by chance. A value of 0.6108251 indicates a moderate to substantial agreement. Typically, a Kappa value above 0.6 is considered substantial.
 
 ```{r}
 performance_log_reg_forward_sel <- cal_scores(train_forward_sel, train_class_logreg , test_forward_sel, test_class_logreg)
@@ -1127,6 +1082,7 @@ print(performance_log_reg_forward_sel$train)
 print(performance_log_reg_forward_sel$calibration)
 ```
 
+The logistic regression classifier trained on the forward selection features performed well on both the training and test set. It also had a good balance between precision and recall as shown by the F1 score of 0.83. The classifier performs slightly better on the test set than the training set in terms of all four metrics (Accuracy, Precision, Recall, and F1 Score). This is a positive indication as it suggests that the model is generalizing well and is not overfitting to the training data.
 
 ```{r, fig.width=10, fig.height=4}
 p1 <- plot_precision_recall_vs_threshold(train_pred_logreg, train_forward_sel, "Precision and Recall vs. Threshold, Train Set")
@@ -1139,6 +1095,12 @@ p1 <- plot_roc(train_pred_logreg, train_forward_sel, "ROC Curve Train Set")
 p2 <- plot_roc(test_pred_logreg, test_forward_sel, "ROC Curve Test Set")
 grid.arrange(p1, p2, ncol=2)
 ```
+
+The AUC, which stands for Area Under the Receiver Operating Characteristic Curve, is a metric that provides an aggregate measure of the classifier's performance across all possible classification thresholds. The AUC values are robust both on the training(0.89) and test sets(0.93), indicating that the logistic regression classifier has strong discriminative power.
+
+The fact that the test AUC (0.93) is higher than the train AUC (0.89) suggests that the model is generalizing even better to unseen data, at least in terms of rank-ordering instances by predicted probability. 
+
+The choppy nature of the ROC curve for the test set could be due to the fact that the test set only contains 94 observations compare to the 855 instances in the training set. The ROC curve may appear to be more jagged or choppy simply due to the granularity of the data points. Each data point can result in a significant jump in the curve.
 
 ```{r, fig.width=8, fig.height=4}
 p1 <- plot_con_matrix(train_class_logreg, train_forward_sel, "Confusion Matrix Train Set")
@@ -1166,11 +1128,19 @@ test_class_pca <- as_tibble(ifelse(test_pred_pca$.pred_1 > 0.5, 1, 0)) %>%
   mutate(".pred_class" = as.factor(value))
 ```
 
+We train a logistic regression model based on the features obtained from PCA with 10 princial components. The metrics of the best performing model are:
+
+- Accuracy: This is the proportion of correctly predicted classifications in the dataset. An accuracy of 0.9988235 means that 99% of the predictions made by the model on the test sets were correct.
+
+- Kappa: Cohen's Kappa is a statistic that measures the agreement between two raters (in this case, the model's predictions and the true values) while taking into account the agreement that could happen by chance. A value of 0.9976461 indicates a extreme agreement. Typically, a Kappa value above 0.6 is considered substantial.
+
 ```{r}
 performance_log_reg_pca <- cal_scores(train_pca, train_class_pca, test_pca, test_class_pca)
 print(performance_log_reg_pca$train)
 print(performance_log_reg_pca$calibration)
 ```
+
+The logistic regression classifier using PCA achieved a perfect score on all metrics for the training set. This means that every single instance in your training and testing dataset was correctly classified, with no false positives or false negatives. Achieving perfect scores across both training and test sets is extremely rare, especially for real-world, complex datasets. 
 
 ```{r, fig.width=10, fig.height=4}
 p1 <- plot_precision_recall_vs_threshold(train_pred_pca, train_pca, "Precision and Recall vs. Threshold, Train Set")
@@ -1178,11 +1148,15 @@ p2 <- plot_precision_recall_vs_threshold(test_pred_pca , test_pca, "Precision an
 grid.arrange(p1, p2, ncol=2)
 ```
 
+The plot above illustrates the tradeoff between precision and recall versus threshold. As seen previously, both precision and recall are 1 so there is no trade off until we get to the extremes of the threshold being 0 or 1.
+
 ```{r, fig.width=8, fig.height=4}
 p1 <- plot_roc(train_pred_pca, train_pca, "ROC Curve Train Set")
 p2 <- plot_roc(test_pred_pca, test_pca, "ROC Curve Test Set")
 grid.arrange(p1, p2, ncol=2)
 ```
+
+An AUC of 1 indicates that there is a 100% probability that the classifier will rank a randomly chosen positive instance higher than a randomly chosen negative instance. This suggests that the classifier's decision boundary has perfectly distinguished between the two classes in both the training and test datasets.
 
 ```{r, fig.width=8, fig.height=4}
 p1 <- plot_con_matrix(train_class_pca, train_pca, "Confusion Matrix Train Set")
@@ -1193,6 +1167,20 @@ grid.arrange(p1, p2, ncol=2)
 # Decision Tree
 
 Decision trees are another model type that makes predictions that are piecewise constant. 
+
+The following are the contents in the decision tree that will be discussed:
+
+- Internal Nodes: These nodes represent a decision based on a feature value.
+
+- Decision Rule: Each internal node displays a decision criterion based on a feature and a threshold value. This criterion is employed to divide the dataset into subsets based on the specified feature and threshold.
+
+- Gini Impurity: A node is pure (gini=0) if all training instances it applies to belong to the same class.
+
+- Leaf Nodes: A node that does not have any child nodes (terminal node). This is what the decision tree predicts your class as.
+
+- Samples: The quantity of samples that arrive at each node, including both internal and leaf nodes.
+
+- Class: The most common class label in each node is shown. For leaf nodes, this is used to make predictions when a sample reaches that node.
 
 ```{r}
 train_dt <- function(df) {
@@ -1226,11 +1214,25 @@ test_pred_dt <- as_tibble(predict(dt_forward, newdata = test_forward_sel, type =
 rpart.plot(dt_forward$finalModel)
 ```
 
+- The tree has a depth of 4 which is not usually a sign of overfitting. However, the tree was seen to be very imbalanced, with the majority of splits occuring on the right side.
+
+- A close examination of the leaf nodes of the decision tree reveals that the majority of the leaf nodes in those levels only have a few samples. This may indicate that the model is capturing noise or random fluctuations in the data, rather than meaningful patterns or relationships.
+
+- The tree contains a large number of sparse nodes. Examining the tree structure, it is revealed that a significant number of the samples travel down the extreme left and right of the tree. This leaves the nodes in the centre, of which are the majority, to be sparse. These nodes contain very few samples. This may indicate that the model is overfitting the data, capturing noise or random fluctuations in the data.
+
 ```{r}
 performance_dt_forward <- cal_scores(train_forward_sel, train_class_dt, test_forward_sel, test_class_dt)
 print(performance_dt_forward$train)
 print(performance_dt_forward$calibration)
 ```
+
+In terms of accuracy, the model achieved an accuracy of around 82.81% on the training set and 82.98% on the test set, which suggests that it's performing similarly on both sets.
+
+Precision is the ratio of true positive predictions to the total number of positive predictions made by the model. In the context of a decision tree classifier, it means that when the model predicts a positive outcome, it is correct approximately 82.45% of the time on the training set and 79.59% of the time on the test set.
+
+Recall (also known as sensitivity or true positive rate) is the ratio of true positive predictions to the total number of actual positive instances in the dataset. Your model's recall is approximately 82.25% on the training set and 86.67% on the test set. This indicates that the model is better at capturing positive instances on the test set compared to the training set.
+
+The F1 score is the harmonic mean of precision and recall. It provides a balance between precision and recall. The model achieved an F1 score of approximately 82.35% on the training set and 82.98% on the test set.
 
 ```{r, fig.width=10, fig.height=4}
 p1 <- plot_precision_recall_vs_threshold(train_pred_dt, train_forward_sel, "Precision and Recall vs. Threshold, Train Set")
@@ -1238,11 +1240,17 @@ p2 <- plot_precision_recall_vs_threshold(test_pred_dt, test_forward_sel, "Precis
 grid.arrange(p1, p2, ncol=2)
 ```
 
+The plot above shows the trade-off bewteen precision and recall vs threshold. 
+
 ```{r, fig.width=8, fig.height=4}
 p1 <- plot_roc(train_pred_dt, train_forward_sel, "ROC Curve Train Set")
 p2 <- plot_roc(test_pred_dt, test_forward_sel, "ROC Curve Test Set")
 grid.arrange(p1, p2, ncol=2)
 ```
+
+An AUC-ROC value of 0.85 on the training set and 0.86 on the test set indicates that the decision tree classifier is doing a good job of separating the two classes, both in the training and test data. 
+
+A difference of only 0.01 between the training and test set AUC-ROC values suggests that the model is not significantly overfitting or underfitting the data, which is a positive sign. It means that the model's ability to discriminate between classes is consistent between the training and test sets.
 
 ```{r, fig.width=8, fig.height=4}
 p1 <- plot_con_matrix(train_class_dt, train_forward_sel, "Confusion Matrix Train Set")
@@ -1269,11 +1277,25 @@ test_pred_dt <- as_tibble(predict(dt_pca, newdata = test_pca, type = "prob")) %>
 rpart.plot(dt_pca$finalModel)
 ```
 
+- The tree has a depth of 3 which is not usually a sign of overfitting. However, the tree was seen to be very imbalanced, with the majority of splits occuring on the left side.
+
+- A close examination of the leaf nodes of the decision tree reveals that the majority of the leaf nodes in those levels only have a few samples. This may indicate that the model is capturing noise or random fluctuations in the data, rather than meaningful patterns or relationships.
+
+- The tree contains a large number of sparse nodes. Examining the tree structure, it is revealed that a significant number of the samples travel down the extreme left and right of the tree. This leaves the nodes in the centre, of which are the majority, to be sparse. These nodes contain very few samples. This may indicate that the model is overfitting the data, capturing noise or random fluctuations in the data.
+
+- The decision tree is only making splits based on 2 of the principal components, PC1 and PC2. Decision trees typically split on features that are more important for making accurate predictions. It's possible that the two features the tree is splitting on are the most informative features in your dataset, and the other seven features may not provide much additional information. This is further supported by the earlier plot of principal components during the feature selection stage, where PC1 and PC2 took up a significant portion of the explained variance in the dataset, with the subsequent 7 PCs being worth much less. 
+
 ```{r}
 performance_dt_forward <- cal_scores(train_pca, train_class_dt, test_pca, test_class_dt)
 print(performance_dt_forward$train)
 print(performance_dt_forward$calibration)
 ```
+
+Precision is the ratio of true positive predictions to the total number of positive predictions made by the model. It measures the ability of the model to avoid false positives. A high precision score indicates that when the model predicts a positive class, it is usually correct. In the results, both the training and test set precision values are high, suggesting that the model is good at making positive predictions.
+
+Recall, also known as sensitivity or true positive rate, is the ratio of true positive predictions to the total number of actual positive instances in the dataset. It measures the model's ability to correctly identify all positive instances. The recall values for both the training and test sets are also reasonably high, indicating that the model is effective at capturing most of the positive instances.
+
+The F1 score is the harmonic mean of precision and recall. It provides a balance between precision and recall and is especially useful when dealing with imbalanced datasets. A high F1 score indicates that the model has a good balance between making accurate positive predictions (high precision) and capturing all positive instances (high recall). The F1 scores for both the training and test sets are high, which suggests that the model performs well in terms of both precision and recall.
 
 ```{r, fig.width=10, fig.height=4}
 p1 <- plot_precision_recall_vs_threshold(train_pred_dt, train_pca, "Precision and Recall vs. Threshold, Train Set")
@@ -1287,6 +1309,8 @@ p2 <- plot_roc(test_pred_dt, test_pca, "ROC Curve Test Set")
 grid.arrange(p1, p2, ncol=2)
 ```
 
+These AUC values are also quite high, which is a positive sign. AUC values close to 1 indicate that the model has a strong ability to discriminate between the two classes, which suggests that the decision tree classifier is effective in distinguishing between positive and negative instances.
+
 ```{r, fig.width=8, fig.height=4}
 p1 <- plot_con_matrix(train_class_dt, train_pca, "Confusion Matrix Train Set")
 p2 <- plot_con_matrix(test_class_dt, test_pca, "Confusion Matrix Test Set")
@@ -1294,15 +1318,6 @@ grid.arrange(p1, p2, ncol=2)
 ```
 
 # Clustering
-
-- scale all cols to have a mean value of 0 and std dev of 1
-- compute pairwise distances using dist()
-- clustering using hclust()
-- extract members of each cluster using cutree()
-- Intepret grouping (talk bullshit)
-- visualize clusters
-- use clusterboot() to analyze clusters
-- Find number of clusters k CH and WSS index
 
 ## Data preparation
 
@@ -1333,7 +1348,7 @@ We will first compute distance between all pairs of points in the data using the
 d <- dist(youtube_clustering, method="manhattan")
 ```
 
-We will perform clustering using hclust()
+We will perform clustering using hclust(). 
 
 ```{r, fig.height=15, fig.width=20}
 pfit <- hclust(d, method="ward.D2") 
