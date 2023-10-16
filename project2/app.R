@@ -494,7 +494,7 @@ CH_index <- function(scaled_df, kmax, method="kmeans") {
 
 
 ui <- dashboardPage(
-  dashboardHeader(),
+  dashboardHeader(title="Project 2 - Modelling"),
   dashboardSidebar(
     sidebarMenu(
       # Setting id makes input$tabs give the tabName of currently-selected tab
@@ -534,7 +534,8 @@ ui <- dashboardPage(
                             selected = "Logistic Regression")), "classify"),
       
       # Clustering tab
-      convertMenuItem(menuItem("Clustering", tabName = "cluster", icon = icon("sitemap")), "cluster")
+      convertMenuItem(menuItem("Clustering", tabName = "cluster", icon = icon("sitemap"),
+                               textInput("nClu", "Number of Clusters:", "3")), "cluster")
     ),
     textOutput("res")
   ),
@@ -627,7 +628,7 @@ server <- function(input, output, session) {
   
   # Reactive expression for dynamic title scaling
   dynamicHeadingScaling <- reactive({
-    paste("Feature Scaling -", input$featurescaling)
+    paste("Feature Scaling -", input$fscale)
   })
   
   # Render UI for dynamic title
@@ -814,7 +815,7 @@ server <- function(input, output, session) {
             pii <- paste('pred',input$singleVarSelector,sep='')
             aucTrain <- calcAUC(train_data[,pii],train_data[,outcome])
             valueBox(
-              round(aucTrain, 3), "AUC Value", color = "purple", icon = icon("grip-lines-vertical")
+              round(aucTrain, 3), "AUC Value", color = "purple", icon = icon("chart-line")
             )
           })
           
@@ -822,7 +823,7 @@ server <- function(input, output, session) {
             pi <- paste('pred', input$singleVarSelector, sep='')
             devDrop <- 2*(logLikelihood(train_data[,pi], train_data[,outcome]==pos) - logNull)
             valueBox(
-              round(devDrop,3), "Deviance Drop", color = "green", icon = icon("thumbs-up")
+              round(devDrop,3), "Deviance Drop", color = "orange", icon = icon("angles-down")
             )
           })
         } else {
@@ -885,13 +886,13 @@ server <- function(input, output, session) {
             
             output$numDimBox <- renderValueBox({
               valueBox(
-                num_components, "Number of Principal Components", color = "purple", icon = icon("grip-lines-vertical")
+                num_components, "Number of Principal Components", color = "purple", icon = icon("hashtag")
               )
             })
             
             output$explainedVarBox <- renderValueBox({
               valueBox(
-                retained_variance, "Retained Variance", color = "green", icon = icon("thumbs-up")
+                round(retained_variance,4), "Retained Variance", color = "orange", icon = icon("signal")
               )
             })
           }
@@ -939,46 +940,46 @@ server <- function(input, output, session) {
           
           output$trainaccuracyBox <- renderValueBox({
             valueBox(
-              round(performance$train$Accuracy, 3), "Train Accuracy", color = "purple", icon = icon("grip-lines-vertical")
+              round(performance$train$Accuracy, 3), "Train Accuracy", color = "purple", icon = icon("dumbbell")
             )
           })
           
           output$testaccuracyBox <- renderValueBox({
             valueBox(
-              round(performance$calibration$Accuracy, 3), "Test Accuracy", color = "green", icon = icon("thumbs-up")
+              round(performance$calibration$Accuracy, 3), "Test Accuracy", color = "orange", icon = icon("envelope-open-text")
             )
           })
           output$trainprecisionBox <- renderValueBox({
             valueBox(
-              round(performance$train$Precision, 3), "Train Precision", color = "purple", icon = icon("grip-lines-vertical")
+              round(performance$train$Precision, 3), "Train Precision", color = "purple", icon = icon("dumbbell")
             )
           })
           
           output$testprecisionBox <- renderValueBox({
             valueBox(
-              round(performance$calibration$Precision, 3), "Test Precision", color = "green", icon = icon("thumbs-up")
+              round(performance$calibration$Precision, 3), "Test Precision", color = "orange", icon = icon("envelope-open-text")
             )
           })
           output$trainrecallBox <- renderValueBox({
             valueBox(
-              round(performance$train$Recall, 3), "Train Recall", color = "purple", icon = icon("grip-lines-vertical")
+              round(performance$train$Recall, 3), "Train Recall", color = "purple", icon = icon("dumbbell")
             )
           })
           
           output$testrecallBox <- renderValueBox({
             valueBox(
-              round(performance$calibration$Recall, 3), "Test Recall", color = "green", icon = icon("thumbs-up")
+              round(performance$calibration$Recall, 3), "Test Recall", color = "orange", icon = icon("envelope-open-text")
             )
           })
           output$trainf1Box <- renderValueBox({
             valueBox(
-              round(performance$train$F1, 3), "Train F1", color = "purple", icon = icon("grip-lines-vertical")
+              round(performance$train$F1, 3), "Train F1", color = "purple", icon = icon("dumbbell")
             )
           })
           
           output$testf1Box <- renderValueBox({
             valueBox(
-              round(performance$calibration$F1, 3), "Test F1", color = "green", icon = icon("thumbs-up")
+              round(performance$calibration$F1, 3), "Test F1", color = "orange", icon = icon("envelope-open-text")
             )
           })
           
@@ -1007,13 +1008,15 @@ server <- function(input, output, session) {
             youtube_clustering <- youtube_clustering[, grep("\\.norm$", colnames(youtube_clustering))]
             colnames(youtube_clustering) <- sub("\\.norm$", "", colnames(youtube_clustering))
             
+            numClusters = as.numeric(input$nClu)
+            
             d <- dist(youtube_clustering, method="manhattan")
             pfit <- hclust(d, method="ward.D2")
-            groups <- cutree(pfit, k=3)
+            groups <- cutree(pfit, k=numClusters)
             
             output$dendrogram <- renderPlot({
-              plot(pfit, main="Cluster Dendrogram for Youtube Channels", labels=names$Youtuber)
-              rect.hclust(pfit, k=3) 
+              plot(pfit, main="Cluster Dendrogram for Youtube Channels", labels=FALSE)
+              rect.hclust(pfit, k=numClusters) 
             })
 
             princ <- prcomp(youtube_clustering)
