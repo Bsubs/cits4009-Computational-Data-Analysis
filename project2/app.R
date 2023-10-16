@@ -586,6 +586,7 @@ ui <- dashboardPage(
                   title="Metrics",
                   id="tabset1",
                   width=12,
+                  uiOutput("dynamicDT"),
                   tabPanel("Stats",
                            fluidRow(
                              valueBoxOutput("trainaccuracyBox", width =6),
@@ -670,6 +671,14 @@ server <- function(input, output, session) {
   # Render UI for dynamic title
   output$dynamicTitleClass <- renderUI({
     h2(dynamicHeadingClass())
+  })
+  
+  output$dynamicDT <- renderUI({
+    if (input$classModel == "Decision Tree") {
+      tabPanel("Decision Tree", plotOutput("dtPlot"))
+    } else {
+      NULL
+    }
   })
   
   shiny::observe({
@@ -934,6 +943,11 @@ server <- function(input, output, session) {
             
             test_pred <- as_tibble(predict(dt, newdata = test_d, type = "prob")) %>%
               rename(".pred_0" = `0`, ".pred_1" = `1`)
+            
+            output$dtPlot <- renderPlot({
+              rpart.plot(dt$finalModel)
+            })
+            
           }
           
           performance <- cal_scores(train_d, train_class , test_d, test_class)
