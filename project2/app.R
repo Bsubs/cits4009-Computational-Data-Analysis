@@ -492,6 +492,15 @@ CH_index <- function(scaled_df, kmax, method="kmeans") {
   data.frame(k = 1:kmax, CH_index = B/W, WSS = wss.value)
 }
 
+plot_dendrogram <- function(distMetric, linkageMethod, k){
+  d <- dist(youtube_clustering, method=distMetric)
+  pfit <- hclust(d, method=linkageMethod) 
+  plot(pfit, main="Cluster Dendrogram for Youtube Channels", labels=NULL)
+  rect.hclust(pfit, k=3) 
+  
+  return(pfit)
+}
+
 
 ui <- dashboardPage(
   dashboardHeader(title="Project 2 - Modelling"),
@@ -535,6 +544,10 @@ ui <- dashboardPage(
       
       # Clustering tab
       convertMenuItem(menuItem("Clustering", tabName = "cluster", icon = icon("sitemap"),
+                               selectInput("distMSel", "Distance Metric:",
+                                           choices = c("manhattan", "euclidean")),
+                               selectInput("linkMSel", "Linkage Method:",
+                                           choices = c("ward.D2", "single", "complete", "centroid")),
                                textInput("nClu", "Number of Clusters:", "3")), "cluster")
     ),
     textOutput("res")
@@ -1028,14 +1041,11 @@ server <- function(input, output, session) {
               numClusters <- 2
             }
             
-            d <- dist(youtube_clustering, method="manhattan")
-            pfit <- hclust(d, method="ward.D2")
-            groups <- cutree(pfit, k=numClusters)
-            
             output$dendrogram <- renderPlot({
-              plot(pfit, main="Cluster Dendrogram for Youtube Channels", labels=FALSE)
-              rect.hclust(pfit, k=numClusters) 
+              pfit <- plot_dendrogram(input$distMSel, input$linkMSel, numClusters) 
             })
+            
+            groups <- cutree(pfit, k=numClusters)
 
             princ <- prcomp(youtube_clustering)
             nComp <- 2

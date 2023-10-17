@@ -1345,31 +1345,65 @@ colnames(youtube_clustering) <- sub("\\.norm$", "", colnames(youtube_clustering)
 We will first compute distance between all pairs of points in the data using the euclidean distance.
 
 ```{r}
-d <- dist(youtube_clustering, method="manhattan")
+plot_dendrogram <- function(distMetric, linkageMethod, k){
+  d <- dist(youtube_clustering, method=distMetric)
+  pfit <- hclust(d, method=linkageMethod) 
+  plot(pfit, main="Cluster Dendrogram for Youtube Channels", labels=names$Youtuber)
+  rect.hclust(pfit, k=3) 
+  
+  return(pfit)
+}
 ```
 
-We will perform clustering using hclust(). 
+We will now explore several different linkage criteria for plotting dendrograms.
 
-```{r, fig.height=15, fig.width=20}
-pfit <- hclust(d, method="ward.D2") 
-plot(pfit, main="Cluster Dendrogram for Youtube Channels", labels=names$Youtuber)
-rect.hclust(pfit, k=3) 
-
-```
-
-**Dendrogram**
-
-- Each leaf node represents a Youtuber, in the diagram above, they are labelled but it is very difficult to intepret due to the sheer density of the data points. 
+- Each leaf node represents a Youtuber, in the diagram , they are labelled but it is very difficult to interpret due to the sheer density of the data points. 
 
 - Instances at the bottom of the dendrogram are more similar than those higher up
 
 - For any two instances, we can measure the height of the fusion on the vertical axis to see how different the two instances are. The greater the height, the greater the difference.
 
-- From the dendrogram, we can see 3 distinct clusters form rather than the 2 from the classification task in the previous section. 
+### Hierarchical Clustering using single linkage
 
-- The tree is highly unbalanced, with cluster 1 being much smaller than cluster 3.  
+```{r, fig.height=15, fig.width=20, message=FALSE}
+pfit <- plot_dendrogram("manhattan", "single", 3)
+```
 
-### Extracting members using cutree()
+In single linkage, we treat each data point as a single cluster. Therefore, if there are N data points, we start with N clusters. In each of the subsequent stages, the two clusters that are closest to each other are merged into a single cluster, reducing the total number of clusters by one.The distance between two clusters is determined by the shortest distance between points in the two clusters.
+
+One of the main features of single linkage clustering is its ability to detect elongated or non-elliptical shaped clusters. However, it also has a tendency to create "chained" clusters where clusters can be long and "stringy", potentially linking together clusters that are quite far apart in the broader dataset. This is because only the minimum pairwise distance matters and can lead to the "chaining effect".
+
+This can be observed in the plot of the dendrogram above. `Daddy Yankee` is very separated from the remainder of the instances in the dataset and only merges at a high distance value. For the rest of the observations, the dendrogram displays the chaining effect typical of single linkage, where clusters can be long and "stringy." This effect is especially noticeable in the right cluster, where many subclusters merge at a low height, forming a long chain.
+
+### Hierarchical Clustering using complete linkage
+
+```{r, fig.height=15, fig.width=20, message=FALSE}
+pfit <- plot_dendrogram("manhattan", "complete", 3)
+```
+
+Complete linkage considers the distance between two clusters to be equal to the greatest distance from any member of one cluster to any member of the other cluster. The distance between two clusters is equal to the farthest points between them.
+
+Compared to other linkage methods such as single linkage or average linkage, complete linkage tends to produce more balanced and compact clusters. However, it can also be sensitive to outliers, as a single outlying point can influence the distance between two clusters.
+
+We can observe this in the dendrogram above, where we once again see the outlier `Daddy Yankee` at the top of the dendrogram. However, unlike single linkage, complete linkage produced a much more balanced dendrogram with no stringy trees. 
+
+### Hierarchical Clustering using ward.D2
+
+Clustering using `ward.D2`:
+
+```{r, fig.height=15, fig.width=20, message=FALSE}
+pfit <- plot_dendrogram("manhattan", "ward.D2", 3)
+
+```
+
+The main goal of ward.D2 is to minimize the increase in total within-cluster variance after merging two clusters. In other words, it finds the pair of clusters to merge such that the sum of squared distances between the items and the centroids of their respective clusters increases the least.
+
+Ward's method often results in clusters that are relatively compact and roughly equal in size. However, it assumes that clusters have a roughly spherical shape in the data space. Like other methods, it can sometimes be sensitive to outliers.
+
+Ward's method produced the most balanced tree with 3 distinct, well separated clusters. However, the clusters are not equal in size. As this produced the most balanced dendrogram, we will be using the ward.D2 clustering method for the remainder of this document. 
+
+
+## Extracting members using cutree()
 
 cutree() takes in a clustering model (e.g., created by hclust()) and returns a vector (or matrix) of cluster group assignment(s) for each row
 
@@ -1414,7 +1448,7 @@ plot_instances(names, "Country", groups)
 plot_instances(names, "channel_type", groups)
 ```
 
-### Visualising Clusters
+## Visualising Clusters
 
 ```{r}
 princ <- prcomp(youtube_clustering)
@@ -1449,7 +1483,7 @@ alpha=0.4, linetype=0) + theme(text=element_text(size=8))
 
 ```
 
-### Using clusterboot() to assess stability
+## Using clusterboot() to assess stability
 
 ```{r, results='hide'}
 kbest.p <- 3
@@ -1467,7 +1501,7 @@ groups.cboot <- cboot.hclust$result$partition
 values <- 1 - cboot.hclust$bootbrd/100
 ```
 
-### Finding the value of k
+## Finding the value of k
 
 ```{r}
 # Function to return the squared Euclidean distance of two given points x and y
