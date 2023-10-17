@@ -1024,6 +1024,10 @@ server <- function(input, output, session) {
             
             numClusters = as.numeric(input$nClu)
             
+            if(is.na(numClusters)){
+              numClusters <- 2
+            }
+            
             d <- dist(youtube_clustering, method="manhattan")
             pfit <- hclust(d, method="ward.D2")
             groups <- cutree(pfit, k=numClusters)
