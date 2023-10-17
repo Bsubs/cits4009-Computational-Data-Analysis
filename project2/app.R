@@ -525,7 +525,7 @@ CH_index <- function(scaled_df, kmax, method="kmeans") {
   data.frame(k = 1:kmax, CH_index = B/W, WSS = wss.value)
 }
 
-plot_dendrogram <- function(distMetric, linkageMethod, k){
+plot_dendrogram <- function(distMetric, linkageMethod, k, youtube_clustering){
   d <- dist(youtube_clustering, method=distMetric)
   pfit <- hclust(d, method=linkageMethod) 
   plot(pfit, main="Cluster Dendrogram for Youtube Channels", labels=NULL)
@@ -1103,8 +1103,11 @@ server <- function(input, output, session) {
             }
             
             output$dendrogram <- renderPlot({
-              pfit <- plot_dendrogram(input$distMSel, input$linkMSel, numClusters) 
+              pfit <- plot_dendrogram(input$distMSel, input$linkMSel, numClusters, youtube_clustering) 
             })
+            
+            pfit <- plot_dendrogram(input$distMSel, input$linkMSel, numClusters, youtube_clustering) 
+            
             
             groups <- cutree(pfit, k=numClusters)
 

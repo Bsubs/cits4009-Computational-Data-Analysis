@@ -1495,7 +1495,7 @@ We will first compute distance between all pairs of points in the data using the
 plot_dendrogram <- function(distMetric, linkageMethod, k){
   d <- dist(youtube_clustering, method=distMetric)
   pfit <- hclust(d, method=linkageMethod) 
-  plot(pfit, main="Cluster Dendrogram for Youtube Channels", labels=names$Youtuber)
+  plot(pfit, main="Cluster Dendrogram for Youtube Channels", labels=NULL)
   rect.hclust(pfit, k=3) 
   
   return(pfit)
