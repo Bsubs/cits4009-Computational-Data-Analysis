@@ -268,6 +268,39 @@ forward_selection <- function(df, response) {
   return(included)
 }
 
+fisher_score <- function(train_data, target_column) {
+  
+  # Extract unique class labels
+  classes <- unique(train_data[[target_column]])
+  
+  if(length(classes) != 2) {
+    stop("The provided data does not have two classes. Fisher's Score here is designed for binary classification.")
+  }
+  
+  # Split the data based on classes
+  class1_data <- train_data[train_data[[target_column]] == classes[1], ]
+  class2_data <- train_data[train_data[[target_column]] == classes[2], ]
+  
+  # Compute means for each class without target column
+  class1_means <- colMeans(class1_data[, !(names(class1_data) %in% target_column)])
+  class2_means <- colMeans(class2_data[, !(names(class2_data) %in% target_column)])
+  
+  # Compute variance for each class without target column
+  class1_variances <- apply(class1_data[, !(names(class1_data) %in% target_column)], 2, var)
+  class2_variances <- apply(class2_data[, !(names(class2_data) %in% target_column)], 2, var)
+  
+  # Compute Fisher's Score for each feature
+  between_class_variance <- (class1_means - class2_means)^2
+  within_class_variance <- class1_variances + class2_variances
+  
+  fisher_scores <- between_class_variance / within_class_variance
+  
+  # Sort features by Fisher's Score in descending order and get their names
+  ranked_feature_names <- names(sort(fisher_scores, decreasing = TRUE))
+  
+  return(ranked_feature_names)
+}
+
 clean_data <- function(df){
   df1 <- subset(df, select=-c(Country, channel_type, created_month))
   df1 <- df1 %>%
@@ -531,7 +564,7 @@ ui <- dashboardPage(
       # Feature Selection Strategy
       convertMenuItem(menuItem("Feature Selection", tabName = "selectfeature", icon = icon("filter"),
                radioButtons("featureSelStrat", "Feature Selection Strategy:",
-                            choices = c("Forward Selection", "PCA"),
+                            choices = c("Forward Selection", "Fisher Score", "PCA"),
                             selected = "Forward Selection"),
                conditionalPanel(condition = "input.featureSelStrat == 'PCA'",
                                 textInput("nPCs", NULL, "10"))), "selectfeature"),
@@ -581,6 +614,11 @@ ui <- dashboardPage(
                   box(title="Forward Selection Features:", status="primary", solidHeader = TRUE, width=12,
                       uiOutput("forwardSelResults")
                   )
+                ),
+                conditionalPanel(condition="input.featureSelStrat == 'Fisher Score'",
+                                 box(title="Fisher Score Features:", status="primary", solidHeader = TRUE, width=12,
+                                     uiOutput("fisherScoreResults")
+                                 )
                 ),
                 conditionalPanel(condition="input.featureSelStrat == 'PCA'",
                   box(title="PCA", status="primary", solidHeader=TRUE, width=12,
@@ -917,6 +955,26 @@ server <- function(input, output, session) {
                 round(retained_variance,4), "Retained Variance", color = "orange", icon = icon("signal")
               )
             })
+          } else if(input$featureSelStrat == "Fisher Score") {
+            fisher_features <- fisher_score(train_data, "average_yearly_earnings.binary")
+            k <- 7
+            top_fisher_features <- fisher_features[1:k]
+            
+            train_fisher <- subset(train_data, select=c(top_fisher_features))
+            test_fisher <- subset(test_data, select=c(top_fisher_features))
+            
+            train_fisher$average_yearly_earnings.binary <- as.factor(train_data$average_yearly_earnings.binary)
+            test_fisher$average_yearly_earnings.binary <- as.factor(test_data$average_yearly_earnings.binary)
+            
+            output$fisherScoreResults <- renderUI({
+              tagList(
+                lapply(top_fisher_features, function(feature) {
+                  div(
+                    h3(feature)
+                  )
+                })
+              )
+            })
           }
           
           # Time to do classification
@@ -927,6 +985,9 @@ server <- function(input, output, session) {
           } else if(input$featureSelStrat == "PCA") {
             train_d <- train_pca
             test_d <- test_pca
+          } else if(input$featureSelStrat == "Fisher Score") {
+            train_d <- train_fisher
+            test_d <- test_fisher
           }
           
           if(input$classModel == "Logistic Regression") {
