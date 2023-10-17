@@ -739,6 +739,67 @@ test_forward_sel$average_yearly_earnings.binary <- as.factor(test_data$average_y
 print(selected_features)
 ```
 
+## Fisher's Score
+
+Fisher's score, is a method used in feature selection. It assesses the discriminating power of individual features with respect to different classes. It's especially effective for datasets with continuous features and categorical class labels.
+
+The fundamental idea behind Fisher's score is to rank features based on their ability to differentiate between classes. This ability is gauged by considering the ratio of between-class variance to within-class variance.
+
+The function below ranks the features based on their Fisher's Score.
+
+```{r}
+fisher_score <- function(train_data, target_column) {
+  
+  # Extract unique class labels
+  classes <- unique(train_data[[target_column]])
+  
+  if(length(classes) != 2) {
+    stop("The provided data does not have two classes. Fisher's Score here is designed for binary classification.")
+  }
+  
+  # Split the data based on classes
+  class1_data <- train_data[train_data[[target_column]] == classes[1], ]
+  class2_data <- train_data[train_data[[target_column]] == classes[2], ]
+  
+  # Compute means for each class without target column
+  class1_means <- colMeans(class1_data[, !(names(class1_data) %in% target_column)])
+  class2_means <- colMeans(class2_data[, !(names(class2_data) %in% target_column)])
+  
+  # Compute variance for each class without target column
+  class1_variances <- apply(class1_data[, !(names(class1_data) %in% target_column)], 2, var)
+  class2_variances <- apply(class2_data[, !(names(class2_data) %in% target_column)], 2, var)
+  
+  # Compute Fisher's Score for each feature
+  between_class_variance <- (class1_means - class2_means)^2
+  within_class_variance <- class1_variances + class2_variances
+  
+  fisher_scores <- between_class_variance / within_class_variance
+  
+  # Sort features by Fisher's Score in descending order and get their names
+  ranked_feature_names <- names(sort(fisher_scores, decreasing = TRUE))
+  
+  return(ranked_feature_names)
+}
+```
+
+When considering the top 5 features based on their Fisher score, they are the same as those returned through forward selection. It is only at the 6th and 7th features that we see a difference. Using the Fisher score gives us `subscribers.log` and `Population.log` over `Gross.tertiary.education.enrollment.....log` and `created_month` from forward selection. 
+
+```{r}
+fisher_features <- fisher_score(train_data, "average_yearly_earnings.binary")
+k <- 7
+top_fisher_features <- fisher_features[1:k]
+
+train_fisher <- subset(train_data, select=c(top_fisher_features))
+test_fisher <- subset(test_data, select=c(top_fisher_features))
+
+train_fisher$average_yearly_earnings.binary <- as.factor(train_data$average_yearly_earnings.binary)
+test_fisher$average_yearly_earnings.binary <- as.factor(test_data$average_yearly_earnings.binary)
+
+
+print(top_fisher_features)
+```
+
+
 ## Principal Component Analysis (PCA)
 
 Many machine learning problems face the problem of having too many features which makes the training process very slow and also can possibly make it hard to converge on an optimal solution, which is referred to as the **curse of dimensionality**. One of the approaches that can be used to solve this is through dimensionality reduction techniques. This not only speeds up training, it also makes it significantly easier to visualize the data, reducing a training set to 2 or 3 dimensions can make it possible to plot a condensed view of a high dimensional training set and gain insights on potential clusters in the data. 
@@ -1034,6 +1095,7 @@ The first classification method used will be logistic regression.  Logistic Regr
 
 As mentioned earlier in the report when we were splitting the data into training and testing sets, we did not make use of a calibration set as we were going to use k-fold cross-validation to pick the best model. K-fold cross validation is a widely used technique for assessing the performance of machine learning models. With a single train/test split, the evaluation can vary a lot based on which data points end up in the training set and which ones end up in the test set. K-fold cross validation, by averaging results from multiple partitions, reduces this variability and provides a more stable and robust estimate of model performance.
 
+The function below allows us to train a logistic regression model given a dataset. 
 
 ```{r}
 # Train a logistic regression model using glm and 10 fold cross validation
@@ -1108,6 +1170,48 @@ p2 <- plot_con_matrix(test_class_logreg, test_forward_sel, "Confusion Matrix Tes
 grid.arrange(p1, p2, ncol=2)
 ```
 
+## Logistic Regression Classifier with Fisher Score Features
+
+```{r}
+log_reg_fisher <- train_log_reg(train_fisher)
+print(log_reg_fisher)
+
+train_pred_fisher <- as_tibble(predict(log_reg_fisher, train_fisher, type = "prob")) %>%
+  mutate(".pred_1" = `1`)
+
+test_pred_fisher <- as_tibble(predict(log_reg_fisher, test_fisher, type = "prob")) %>%
+  mutate(".pred_1" = `1`)
+
+train_class_fisher <- as_tibble(ifelse(train_pred_fisher$.pred_1 > 0.5, 1, 0)) %>%
+  mutate(".pred_class" = as.factor(value))
+
+test_class_fisher <- as_tibble(ifelse(test_pred_fisher$.pred_1 > 0.5, 1, 0)) %>%
+  mutate(".pred_class" = as.factor(value))
+```
+
+```{r}
+performance_log_reg_fisher <- cal_scores(train_fisher, train_class_fisher, test_fisher, test_class_fisher)
+print(performance_log_reg_fisher$train)
+print(performance_log_reg_fisher$calibration)
+```
+
+```{r, fig.width=10, fig.height=4}
+p1 <- plot_precision_recall_vs_threshold(train_pred_fisher, train_fisher, "Precision and Recall vs. Threshold, Train Set")
+p2 <- plot_precision_recall_vs_threshold(test_pred_fisher , test_fisher, "Precision and Recall vs. Threshold, Cal Set")
+grid.arrange(p1, p2, ncol=2)
+```
+
+```{r, fig.width=8, fig.height=4}
+p1 <- plot_roc(train_pred_fisher, train_fisher, "ROC Curve Train Set")
+p2 <- plot_roc(test_pred_fisher, test_fisher, "ROC Curve Test Set")
+grid.arrange(p1, p2, ncol=2)
+```
+
+```{r, fig.width=8, fig.height=4}
+p1 <- plot_con_matrix(train_class_fisher, train_fisher, "Confusion Matrix Train Set")
+p2 <- plot_con_matrix(test_class_fisher, test_fisher, "Confusion Matrix Test Set")
+grid.arrange(p1, p2, ncol=2)
+```
 
 ## Logistic Regression Classifier with PCA Features
 
@@ -1255,6 +1359,49 @@ A difference of only 0.01 between the training and test set AUC-ROC values sugge
 ```{r, fig.width=8, fig.height=4}
 p1 <- plot_con_matrix(train_class_dt, train_forward_sel, "Confusion Matrix Train Set")
 p2 <- plot_con_matrix(test_class_dt, test_forward_sel, "Confusion Matrix Test Set")
+grid.arrange(p1, p2, ncol=2)
+```
+
+## Decision Tree Classifier with Fisher Score Features
+
+```{r, fig.height=4, fig.width=4}
+dt_fisher <- train_dt(train_fisher)
+print(dt_fisher)
+
+train_class_dt <- as_tibble(predict(dt_fisher, newdata = train_fisher, type = "raw")) %>%
+  rename(".pred_class" = value)
+test_class_dt <- as_tibble(predict(dt_fisher, newdata = test_fisher, type = "raw")) %>%
+  rename(".pred_class" = value)
+
+train_pred_dt <- as_tibble(predict(dt_fisher, newdata = train_fisher, type = "prob")) %>%
+  rename(".pred_0" = `0`, ".pred_1" = `1`)
+test_pred_dt <- as_tibble(predict(dt_fisher, newdata = test_fisher, type = "prob")) %>%
+  rename(".pred_0" = `0`, ".pred_1" = `1`)
+
+rpart.plot(dt_fisher$finalModel)
+```
+
+```{r}
+performance_dt_forward <- cal_scores(train_pca, train_class_dt, test_pca, test_class_dt)
+print(performance_dt_forward$train)
+print(performance_dt_forward$calibration)
+```
+
+```{r, fig.width=10, fig.height=4}
+p1 <- plot_precision_recall_vs_threshold(train_pred_dt, train_pca, "Precision and Recall vs. Threshold, Train Set")
+p2 <- plot_precision_recall_vs_threshold(test_pred_dt , test_pca, "Precision and Recall vs. Threshold, Cal Set")
+grid.arrange(p1, p2, ncol=2)
+```
+
+```{r, fig.width=8, fig.height=4}
+p1 <- plot_roc(train_pred_dt, train_pca, "ROC Curve Train Set")
+p2 <- plot_roc(test_pred_dt, test_pca, "ROC Curve Test Set")
+grid.arrange(p1, p2, ncol=2)
+```
+
+```{r, fig.width=8, fig.height=4}
+p1 <- plot_con_matrix(train_class_dt, train_pca, "Confusion Matrix Train Set")
+p2 <- plot_con_matrix(test_class_dt, test_pca, "Confusion Matrix Test Set")
 grid.arrange(p1, p2, ncol=2)
 ```
 
