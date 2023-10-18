@@ -1139,6 +1139,12 @@ We train a logistic regression model based on the features obtained from forward
 - Kappa: Cohen's Kappa is a statistic that measures the agreement between two raters (in this case, the model's predictions and the true values) while taking into account the agreement that could happen by chance. A value of 0.6108251 indicates a moderate to substantial agreement. Typically, a Kappa value above 0.6 is considered substantial.
 
 ```{r}
+importances <- varImp(log_reg_forward, scale = TRUE)
+print(importances)
+```
+
+
+```{r}
 performance_log_reg_forward_sel <- cal_scores(train_forward_sel, train_class_logreg , test_forward_sel, test_class_logreg)
 print(performance_log_reg_forward_sel$train)
 print(performance_log_reg_forward_sel$calibration)
@@ -1189,11 +1195,25 @@ test_class_fisher <- as_tibble(ifelse(test_pred_fisher$.pred_1 > 0.5, 1, 0)) %>%
   mutate(".pred_class" = as.factor(value))
 ```
 
+We train a logistic regression model based on the features obtained from Fisher's Score. The metrics of the best performing model are:
+
+- Accuracy: This is the proportion of correctly predicted classifications in the dataset. An accuracy of 0.7987962 (or roughly 80%) means that 80% of the predictions made by the model on the test sets were correct.
+
+- Kappa: Cohen's Kappa is a statistic that measures the agreement between two raters (in this case, the model's predictions and the true values) while taking into account the agreement that could happen by chance. A value of 0.5971552 indicates a moderate to substantial agreement. Typically, a Kappa value above 0.6 is considered substantial.
+
+```{r}
+importances <- varImp(log_reg_fisher, scale = TRUE)
+print(importances)
+```
+
+
 ```{r}
 performance_log_reg_fisher <- cal_scores(train_fisher, train_class_fisher, test_fisher, test_class_fisher)
 print(performance_log_reg_fisher$train)
 print(performance_log_reg_fisher$calibration)
 ```
+
+The logistic regression classifier trained on the Fisher's Score features performed well on both the training and test set. However, the model on the test set outperformed the model on the training set significantly, the most out of any of the classifiers tested in this report. This is a positive indication as it suggests that the model is generalizing well and is not overfitting to the training data.  
 
 ```{r, fig.width=10, fig.height=4}
 p1 <- plot_precision_recall_vs_threshold(train_pred_fisher, train_fisher, "Precision and Recall vs. Threshold, Train Set")
@@ -1206,6 +1226,8 @@ p1 <- plot_roc(train_pred_fisher, train_fisher, "ROC Curve Train Set")
 p2 <- plot_roc(test_pred_fisher, test_fisher, "ROC Curve Test Set")
 grid.arrange(p1, p2, ncol=2)
 ```
+
+The ROC plot once again demonstrates that this model performs significantly better on the testing set when compared to the training set.
 
 ```{r, fig.width=8, fig.height=4}
 p1 <- plot_con_matrix(train_class_fisher, train_fisher, "Confusion Matrix Train Set")
@@ -1237,6 +1259,11 @@ We train a logistic regression model based on the features obtained from PCA wit
 - Accuracy: This is the proportion of correctly predicted classifications in the dataset. An accuracy of 0.9988235 means that 99% of the predictions made by the model on the test sets were correct.
 
 - Kappa: Cohen's Kappa is a statistic that measures the agreement between two raters (in this case, the model's predictions and the true values) while taking into account the agreement that could happen by chance. A value of 0.9976461 indicates a extreme agreement. Typically, a Kappa value above 0.6 is considered substantial.
+
+```{r}
+importances <- varImp(log_reg_pca, scale = TRUE)
+print(importances)
+```
 
 ```{r}
 performance_log_reg_pca <- cal_scores(train_pca, train_class_pca, test_pca, test_class_pca)
@@ -1325,6 +1352,11 @@ rpart.plot(dt_forward$finalModel)
 - The tree contains a large number of sparse nodes. Examining the tree structure, it is revealed that a significant number of the samples travel down the extreme left and right of the tree. This leaves the nodes in the centre, of which are the majority, to be sparse. These nodes contain very few samples. This may indicate that the model is overfitting the data, capturing noise or random fluctuations in the data.
 
 ```{r}
+importances <- varImp(dt_forward, scale = TRUE)
+print(importances)
+```
+
+```{r}
 performance_dt_forward <- cal_scores(train_forward_sel, train_class_dt, test_forward_sel, test_class_dt)
 print(performance_dt_forward$train)
 print(performance_dt_forward$calibration)
@@ -1382,6 +1414,11 @@ rpart.plot(dt_fisher$finalModel)
 ```
 
 ```{r}
+importances <- varImp(dt_fisher, scale = TRUE)
+print(importances)
+```
+
+```{r}
 performance_dt_forward <- cal_scores(train_pca, train_class_dt, test_pca, test_class_dt)
 print(performance_dt_forward$train)
 print(performance_dt_forward$calibration)
@@ -1394,8 +1431,8 @@ grid.arrange(p1, p2, ncol=2)
 ```
 
 ```{r, fig.width=8, fig.height=4}
-p1 <- plot_roc(train_pred_dt, train_pca, "ROC Curve Train Set")
-p2 <- plot_roc(test_pred_dt, test_pca, "ROC Curve Test Set")
+p1 <- plot_roc(train_pred_dt, train_fisher, "ROC Curve Train Set")
+p2 <- plot_roc(test_pred_dt, test_fisher, "ROC Curve Test Set")
 grid.arrange(p1, p2, ncol=2)
 ```
 
@@ -1433,6 +1470,11 @@ rpart.plot(dt_pca$finalModel)
 - The decision tree is only making splits based on 2 of the principal components, PC1 and PC2. Decision trees typically split on features that are more important for making accurate predictions. It's possible that the two features the tree is splitting on are the most informative features in your dataset, and the other seven features may not provide much additional information. This is further supported by the earlier plot of principal components during the feature selection stage, where PC1 and PC2 took up a significant portion of the explained variance in the dataset, with the subsequent 7 PCs being worth much less. 
 
 ```{r}
+importances <- varImp(dt_pca, scale = TRUE)
+print(importances)
+```
+
+```{r}
 performance_dt_forward <- cal_scores(train_pca, train_class_dt, test_pca, test_class_dt)
 print(performance_dt_forward$train)
 print(performance_dt_forward$calibration)
@@ -1463,6 +1505,27 @@ p1 <- plot_con_matrix(train_class_dt, train_pca, "Confusion Matrix Train Set")
 p2 <- plot_con_matrix(test_class_dt, test_pca, "Confusion Matrix Test Set")
 grid.arrange(p1, p2, ncol=2)
 ```
+
+## Classification Summary
+
+### Model Performance
+
+The best performing model is the logistic regression model with PCA features which scored a perfect score in accuracy, precision and recall. This is not normal behavior for classifiers as in the real world, we rarely see classifiers achieve perfect scores. However, this could be explained by looking at the biplot of the first 2 principal components that was plotted in the feature selection, we observed that just in the first 2 principal components, the data was linearly separable. As we move to higher dimensional spaces by adding other principal components, it might have given use even better separation of the classes which led to the unlikely result of a perfect classifier. 
+
+This is also supported by the fact that on average, the logistic regression classifiers outperformed the decision tree classifiers. Therefore, for the purposes of this classification task, logistic regression seems to be the most suitable.
+
+### Feature iImportances
+
+Both logistic regression and decision trees are inteprable classifiers. 
+
+Logistic regression, for binary classification, predicts the probability that a given instance belongs to a particular category based on a linear combination of its features. The model assigns a weight to each feature, and the sign and magnitude of this weight provide information about how the feature affects the outcome.
+
+The decision tree structure is intuitive, with decisions being made at each node based on a single feature. This mirrors human decision-making in some contexts where we use a series of "if-then-else" conditions. As seen earlier, we can visualize this tree to have a clear overview of the decision making process in the model. 
+
+In terms of the feature importance obtained from the two classifiers, the logistic regression classifiers and decision trees prioritize similar features. 
+
+- Logistic Regression: `Country`, `video_views_rank` and `channel_type` were the most important features with `video.views` and `subscribers`receiving very little weight in all the models trained.
+- Decision Tree: `video_views_rank` was by far the most impact feature, with it being use to make multiple splits in the same tree. However, unlike the logistic regression models, the decision tree models gave high priority to `video.views`.   
 
 # Clustering
 
@@ -1495,8 +1558,8 @@ We will first compute distance between all pairs of points in the data using the
 plot_dendrogram <- function(distMetric, linkageMethod, k){
   d <- dist(youtube_clustering, method=distMetric)
   pfit <- hclust(d, method=linkageMethod) 
-  plot(pfit, main="Cluster Dendrogram for Youtube Channels", labels=NULL)
-  rect.hclust(pfit, k=3) 
+  plot(pfit, main="Cluster Dendrogram for Youtube Channels", labels=FALSE)
+  rect.hclust(pfit, k=k) 
   
   return(pfit)
 }

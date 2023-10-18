@@ -528,7 +528,7 @@ CH_index <- function(scaled_df, kmax, method="kmeans") {
 plot_dendrogram <- function(distMetric, linkageMethod, k, youtube_clustering){
   d <- dist(youtube_clustering, method=distMetric)
   pfit <- hclust(d, method=linkageMethod) 
-  plot(pfit, main="Cluster Dendrogram for Youtube Channels", labels=NULL)
+  plot(pfit, main="Cluster Dendrogram for Youtube Channels", labels=FALSE)
   rect.hclust(pfit, k=3) 
   
   return(pfit)
