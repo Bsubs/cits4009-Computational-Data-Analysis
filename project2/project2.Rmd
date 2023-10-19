@@ -431,7 +431,7 @@ outcome <- "average_yearly_earnings.binary"
 pos <- 1
 
 # Remove highly correlated cols
-youtube <- subset(youtube, select=-c(average_yearly_earnings.log, highest_yearly_earnings.log, lowest_yearly_earnings.log, highest_monthly_earnings.log, lowest_monthly_earnings.log, video_views_for_the_last_30_days.log, subscribers_for_last_30_days.log))
+youtube <- subset(youtube, select=-c(average_yearly_earnings.log, highest_yearly_earnings.log, lowest_yearly_earnings.log, highest_monthly_earnings.log, lowest_monthly_earnings.log, video_views_for_the_last_30_days.log, subscribers_for_last_30_days.log, video_views_rank.log))
 ```
 
 
@@ -882,9 +882,10 @@ The plot above shows the biplot of the data on the first two principal component
 
 **Interpreting the plot**:
 
-- At the bottom of the plot, there's a large cluster of highly correlated features for both of the principal components. However, The length of the arrows for each of these features is not very long which suggests that individually, they might not have significant impact on either of the principal components. However, the large number of correlated features could potentially pose an issue.
-- In the middle of the plot, we have a long arrow for `concave_points_mean`video_views_rank.log` which is parallel to the axis of principal component 1. This suggests that it is very important to this principal component and holds alot of the variance. 
-- At the top of the plot, we have 4 very long arrows for `Gross_tertiary_enrollment.log`, `Unemployment.rate.log`, `Latitude.log` and `Population.log`. These 4 geographic features seem to have a significant weighting in the second principal component.
+- To the left of the plot, there is a cluster of highly correlated features along the axis of the first principal component. There are the demographical features that describe the country of origin of the YouTube channels. 
+- On the right of the plot, we have long arrows for `Country`, `channel_type` along the axis of the first principal component. These features also have significant contribution towards this principal component but are negatively correlated with the demographic features.
+- Toward the top of the plot, we have long arrows along the axis of the second principal component for `video.views` and `subscribers`. We also have a smaller arrow for `uploads`. This suggests that the second principal components is highly influenced by these features.
+- `created_year`, `created_month` and `created_date` have very small arrows, and are practically non-existent. This mean that they have little influence on either of the first 2 principal components. 
 
 ### Using PCA to retain 95% of the explained variance
 
@@ -907,7 +908,7 @@ ggplot(explained_variance_data, aes(x = Dimension)) +
   geom_line(aes(y = CumulativeVariance), color = "red", size = 1.2) +
   geom_point(aes(y = CumulativeVariance), color = "red") +
   geom_vline(aes(xintercept = 10), color = "black", linetype = "dashed", size = 1) +
-  annotate("text", x = num_components, y = 0.8, label = "Number of components required to retain\n95% of the explained variance", hjust = -0.05) +
+  annotate("text", x = num_components, y = 0.8, label = "Number of components required\nto retain 95% of the\nexplained variance", hjust = 0.25) +
   labs(
     title = "Explained Variance as a Function of Dimensions",
     x = "Number of Dimensions",
@@ -1345,11 +1346,11 @@ test_pred_dt <- as_tibble(predict(dt_forward, newdata = test_forward_sel, type =
 rpart.plot(dt_forward$finalModel)
 ```
 
-- The tree has a depth of 4 which is not usually a sign of overfitting. However, the tree was seen to be very imbalanced, with the majority of splits occuring on the right side.
+- The tree has a depth of 2 which is not usually a sign of overfitting. However, the tree was seen to be very imbalanced, with the majority of splits occurring on the right side.
 
 - A close examination of the leaf nodes of the decision tree reveals that the majority of the leaf nodes in those levels only have a few samples. This may indicate that the model is capturing noise or random fluctuations in the data, rather than meaningful patterns or relationships.
 
-- The tree contains a large number of sparse nodes. Examining the tree structure, it is revealed that a significant number of the samples travel down the extreme left and right of the tree. This leaves the nodes in the centre, of which are the majority, to be sparse. These nodes contain very few samples. This may indicate that the model is overfitting the data, capturing noise or random fluctuations in the data.
+- The tree contains a large number of sparse nodes. Examining the tree structure, it is revealed that a significant number of the samples travel down the extreme left and right of the tree. This leaves the nodes in the center, of which are the majority, to be sparse. These nodes contain very few samples. This may indicate that the model is overfitting the data, capturing noise or random fluctuations in the data.
 
 ```{r}
 importances <- varImp(dt_forward, scale = TRUE)
@@ -1366,7 +1367,7 @@ In terms of accuracy, the model achieved an accuracy of around 82.81% on the tra
 
 Precision is the ratio of true positive predictions to the total number of positive predictions made by the model. In the context of a decision tree classifier, it means that when the model predicts a positive outcome, it is correct approximately 82.45% of the time on the training set and 79.59% of the time on the test set.
 
-Recall (also known as sensitivity or true positive rate) is the ratio of true positive predictions to the total number of actual positive instances in the dataset. Your model's recall is approximately 82.25% on the training set and 86.67% on the test set. This indicates that the model is better at capturing positive instances on the test set compared to the training set.
+Recall (also known as sensitivity or true positive rate) is the ratio of true positive predictions to the total number of actual positive instances in the dataset. The model's recall is approximately 82.25% on the training set and 86.67% on the test set. This indicates that the model is better at capturing positive instances on the test set compared to the training set.
 
 The F1 score is the harmonic mean of precision and recall. It provides a balance between precision and recall. The model achieved an F1 score of approximately 82.35% on the training set and 82.98% on the test set.
 
@@ -1412,6 +1413,10 @@ test_pred_dt <- as_tibble(predict(dt_fisher, newdata = test_fisher, type = "prob
 
 rpart.plot(dt_fisher$finalModel)
 ```
+
+The decision tree with Fisher Score features performed identically to the decision tree using forward selection features. This is because the tree made the splits using the same 2 features `video.views` and `uploads` as the other decision tree. 
+
+This indicates that the decision tree classifier ranks the importance of these 2 features very highly. However, this unfortunately did not produce different results for the tree.  
 
 ```{r}
 importances <- varImp(dt_fisher, scale = TRUE)
@@ -1514,7 +1519,7 @@ The best performing model is the logistic regression model with PCA features whi
 
 This is also supported by the fact that on average, the logistic regression classifiers outperformed the decision tree classifiers. Therefore, for the purposes of this classification task, logistic regression seems to be the most suitable.
 
-### Feature iImportances
+### Feature Importances
 
 Both logistic regression and decision trees are inteprable classifiers. 
 
@@ -1525,7 +1530,7 @@ The decision tree structure is intuitive, with decisions being made at each node
 In terms of the feature importance obtained from the two classifiers, the logistic regression classifiers and decision trees prioritize similar features. 
 
 - Logistic Regression: `Country`, `video_views_rank` and `channel_type` were the most important features with `video.views` and `subscribers`receiving very little weight in all the models trained.
-- Decision Tree: `video_views_rank` was by far the most impact feature, with it being use to make multiple splits in the same tree. However, unlike the logistic regression models, the decision tree models gave high priority to `video.views`.   
+- Decision Tree: `video_views` and `uploads` were by far the most impact feature, with it being use to make multiple splits in the same tree. This is completely opposite to the logistic regression models which gave very little weight to these 2 features.   
 
 # Clustering
 
@@ -1658,9 +1663,12 @@ plot_instances(names, "Country", groups)
 plot_instances(names, "channel_type", groups)
 ```
 
+We are unable to extract much useful information from the clusters when plotting by `Country` or `Category`. As seen in the plots above, each variable is made of a mix of the three clusters. It is hard to glean any useful information from them. 
+
 ## Visualising Clusters
 
 ```{r}
+groups <- cutree(pfit, k=2)
 princ <- prcomp(youtube_clustering)
 nComp <- 2
 project2D <- as.data.frame(predict(princ, newdata=youtube_clustering)[,1:nComp])
@@ -1692,6 +1700,8 @@ geom_polygon(data=hclust.hull, aes(group=cluster, fill=as.factor(cluster)),
 alpha=0.4, linetype=0) + theme(text=element_text(size=8))
 
 ```
+
+When visualizing the clusters using the first 2 principal components, we notice that there are 2 distinct clusters, rather than the 3 clusters found in the `ward.D2` dendrogram. This suggests that clusters 2 and 3 in the dendrogram are not very well seperated which is why they appear as one cluster in this 2 dimensional PCA plot. 
 
 ## Using clusterboot() to assess stability
 
@@ -1796,7 +1806,7 @@ fig2 <- ggplot(crit.df, aes(x=k, y=WSS), color="blue") +
 grid.arrange(fig1, fig2, nrow=1)
 ```
 
-
+Using the CH Index and WSS to find the best value of K, where the higher the value the better. Using this method, we find that K=2 has the highest scores for both CH Index and WSS. This supports what we found earlier in the PCA plot where there were 2 clusters instead of 3. 
 
 
 
