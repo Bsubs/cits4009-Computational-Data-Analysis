@@ -6,7 +6,7 @@ output:
   html_document:
     code_folding: hide
 ---
-```{css}
+```{css, echo=FALSE}
 img {
   display: block;
   margin-bottom: 0 !important;
@@ -24,6 +24,8 @@ https://www.kaggle.com/datasets/nelgiriyewithana/global-youtube-statistics-2023
 This dataset contains various information about the top YouTube channels on the platform with the most subscribers. The data set contains information about their subscriber counts, video views, earnings and demographics.
 
 The modelling process explored to predict high/low earnings is documented below in terms of code and comments.  
+
+The link to the YouTube video showcasing the shiny app: https://www.youtube.com/watch?v=1m-_8IBYG1M
 
 # Data loading, and set up
 
@@ -801,6 +803,8 @@ print(top_fisher_features)
 
 
 ## Principal Component Analysis (PCA)
+
+We review literature to select PCA as a dimensionality reduction technique to create new features.
 
 Many machine learning problems face the problem of having too many features which makes the training process very slow and also can possibly make it hard to converge on an optimal solution, which is referred to as the **curse of dimensionality**. One of the approaches that can be used to solve this is through dimensionality reduction techniques. This not only speeds up training, it also makes it significantly easier to visualize the data, reducing a training set to 2 or 3 dimensions can make it possible to plot a condensed view of a high dimensional training set and gain insights on potential clusters in the data. 
 
